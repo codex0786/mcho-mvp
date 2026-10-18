@@ -26,6 +26,8 @@ An evidence-first geospatial observatory starter. It is designed to connect date
 2. Start services: `docker compose up --build -d db redis`.
 3. Run migrations: `docker compose run --rm api alembic upgrade head`.
 4. Start application services: `docker compose up --build api worker web`.
+
+The Compose configuration builds the database URL from separate connection fields, safely encoding special characters in passwords. For running the API directly on your host, set `POSTGRES_HOST=localhost` and ensure a local PostGIS instance is running.
 5. API docs: <http://localhost:8000/docs>; web shell: <http://localhost:3000>.
 
 The map uses a configurable MapLibre style URL. If none is configured, the UI displays an explicit configuration state rather than inventing a map provider or key.

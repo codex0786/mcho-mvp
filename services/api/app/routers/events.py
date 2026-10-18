@@ -126,6 +126,10 @@ def correct_event(event_id: UUID, body: CorrectionIn, reviewer: str = Depends(re
         event.verification_status = VerificationStatus(body.verification_status)
     event.status = EventStatus.corrected
     db.add(revision)
+    db.add(AuditLog(
+        actor_id=reviewer, action="correct_event", subject_type="event", subject_id=str(event.id),
+        detail={"revision_number": latest + 1, "rationale": body.rationale},
+    ))
     db.commit()
     return {"event_id": str(event.id), "revision_number": latest + 1, "status": event.status.value,
         "message": "Correction recorded; event remains unpublished until re-reviewed and republished."}
@@ -138,14 +142,30 @@ def publish_event(event_id: UUID, reviewer: str = Depends(require_reviewer), db:
         raise HTTPException(status_code=404, detail="Event not found.")
     if event.verification_status not in {VerificationStatus.verified, VerificationStatus.provisional}:
         raise HTTPException(status_code=409, detail="Only verified or explicitly provisional events can be published.")
-    evidence_count = db.scalar(select(func.count()).select_from(EventEvidence).where(EventEvidence.event_id == event_id)) or 0
+    if event.status == EventStatus.withdrawn:
+        raise HTTPException(status_code=409, detail="Withdrawn events cannot be republished through this endpoint.")
+    eligible_license_statuses = {"approved", "public_domain", "open_license", "licensed"}
+    evidence_rows = db.execute(
+        select(EventEvidence.id, Source.active, Source.license_status)
+        .join(SourceDocument, EventEvidence.source_document_id == SourceDocument.id)
+        .join(Source, SourceDocument.source_id == Source.id)
+        .where(EventEvidence.event_id == event_id)
+    ).all()
+    evidence_count = len(evidence_rows)
     if evidence_count < 1:
         raise HTTPException(status_code=409, detail="At least one linked source record is required before publication.")
+    eligible_evidence_count = sum(
+        1 for _, active, license_status in evidence_rows
+        if active and license_status in eligible_license_statuses
+    )
+    if eligible_evidence_count < 1:
+        raise HTTPException(status_code=409, detail="Publication requires evidence from an active source with a reviewed, permitted use status.")
     if event.event_type in {"civilian_casualties", "perpetrator_attribution", "mass_casualty", "blockade_violation"} and event.verification_status != VerificationStatus.verified:
         raise HTTPException(status_code=409, detail="This high-impact event category requires verified status before publication.")
     event.status = EventStatus.published
     db.add(AuditLog(actor_id=reviewer, action="publish_event", subject_type="event", subject_id=str(event.id),
-                    detail={"verification_status": event.verification_status.value, "evidence_count": evidence_count}))
+                    detail={"verification_status": event.verification_status.value, "evidence_count": evidence_count,
+                            "eligible_evidence_count": eligible_evidence_count}))
     db.commit()
     return {"event_id": str(event.id), "status": event.status.value, "verification_status": event.verification_status.value,
-            "evidence_count": evidence_count, "published_by": reviewer}
+            "evidence_count": evidence_count, "eligible_evidence_count": eligible_evidence_count, "published_by": reviewer}

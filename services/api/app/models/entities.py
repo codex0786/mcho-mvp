@@ -39,7 +39,7 @@ class Source(Base):
     access_mode: Mapped[str] = mapped_column(String(60), nullable=False, default="public")
     license_status: Mapped[str] = mapped_column(String(60), nullable=False, default="unreviewed")
     homepage_url: Mapped[str | None] = mapped_column(Text)
-    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 

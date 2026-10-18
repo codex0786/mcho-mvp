@@ -54,6 +54,10 @@ pytest
 
 The API requires PostgreSQL/PostGIS for the complete spatial schema. Unit tests should use fixtures/mocks where they do not require a database; integration tests should run against the Compose database.
 
+## Deployment
+
+A Render pilot deployment Blueprint is available in [`render.yaml`](./render.yaml). Read [the Render deployment guide](./docs/deploy-render.md) before applying it. Applying the Blueprint creates cloud resources that may incur recurring charges. No services are deployed automatically by this repository commit.
+
 ## Environment variables
 
 See `.env.example`. Keep credentials out of source control. External provider integrations are intentionally unconfigured by default.

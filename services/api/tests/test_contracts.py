@@ -67,6 +67,16 @@ def test_database_url_encodes_special_characters():
     assert make_url(config.sqlalchemy_url).password == password
 
 
+def test_managed_postgres_dsn_selects_installed_psycopg_driver():
+    config = Settings(_env_file=None, database_url="postgresql://demo:password@db.internal:5432/mcho")
+    assert config.sqlalchemy_url == "postgresql+psycopg://demo:password@db.internal:5432/mcho"
+
+
+def test_postgres_legacy_url_scheme_is_normalized():
+    config = Settings(_env_file=None, database_url="postgres://demo:password@db.internal:5432/mcho")
+    assert config.sqlalchemy_url.startswith("postgresql+psycopg://")
+
+
 def test_verified_decision_does_not_publish_automatically():
     event = SimpleNamespace(is_synthetic=False, status="pending_review", verification_status="unverified")
     apply_review_decision(event, "verify")

@@ -77,3 +77,21 @@ jobs:
         env:
           NEXT_PUBLIC_API_BASE_URL: https://api.example.invalid/api/v1
           NEXT_PUBLIC_MAP_STYLE_URL: ""
+
+  container-builds:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build --pull -f services/api/Dockerfile -t mcho-api:ci services/api
+      - name: Build worker image
+        run: docker build --pull -f services/workers/Dockerfile -t mcho-worker:ci services/workers
+      - name: Build frontend image
+        run: >-
+          docker build --pull
+          --build-arg NEXT_PUBLIC_API_ORIGIN=https://mcho-api.onrender.com
+          --build-arg NEXT_PUBLIC_MAP_STYLE_URL=
+          -f apps/web/Dockerfile
+          -t mcho-web:ci apps/web

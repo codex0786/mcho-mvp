@@ -22,7 +22,13 @@ class Settings(BaseSettings):
     @property
     def sqlalchemy_url(self) -> str:
         if self.database_url and self.database_url.strip():
-            return self.database_url.strip()
+            supplied = self.database_url.strip()
+            # Managed PostgreSQL URLs often omit SQLAlchemy's explicit psycopg v3 driver.
+            if supplied.startswith("postgres://"):
+                return "postgresql+psycopg://" + supplied[len("postgres://"):]
+            if supplied.startswith("postgresql://"):
+                return "postgresql+psycopg://" + supplied[len("postgresql://"):]
+            return supplied
         username = quote(self.postgres_user, safe="")
         password = quote(self.postgres_password, safe="")
         database = quote(self.postgres_db, safe="")

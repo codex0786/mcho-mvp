@@ -6,7 +6,10 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 type EventFeature = { type: "Feature"; id: string; geometry: GeoJSON.Geometry; properties: Record<string, unknown> };
 type EventCollection = { type: "FeatureCollection"; features: EventFeature[]; response_generated_at?: string };
-const API = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
+const API_ORIGIN = process.env.NEXT_PUBLIC_API_ORIGIN;
+const API = API_ORIGIN
+  ? `${API_ORIGIN.replace(/\/$/, "")}/api/v1`
+  : (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1");
 const STYLE = process.env.NEXT_PUBLIC_MAP_STYLE_URL || "";
 
 export default function RegionalMap() {

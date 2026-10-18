@@ -26,7 +26,6 @@ export default function RegionalMap() {
       style: STYLE,
       center: [39, 27],
       zoom: 3.2,
-      attributionControl: true,
     });
     instance.addControl(new maplibregl.NavigationControl(), "top-right");
     instance.on("load", () => {

@@ -61,7 +61,7 @@ def test_reviewer_authentication_accepts_matching_key(monkeypatch):
 def test_database_url_encodes_special_characters():
     password = "p@ss:/word#?"
     config = Settings(
-        _env_file=None, postgres_host="db", postgres_user="mcho",
+        _env_file=None, database_url=None, postgres_host="db", postgres_user="mcho",
         postgres_password=password, postgres_db="mcho",
     )
     assert make_url(config.sqlalchemy_url).password == password

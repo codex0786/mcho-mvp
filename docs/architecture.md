@@ -5,7 +5,7 @@ The MVP is a modular monolith API with a separate Celery worker process. Postgre
 ## Trust boundaries
 
 - Public API: published, non-synthetic events and approved aggregates only.
-- Reviewer API: protected by a temporary shared API key in this scaffold. Replace with an OIDC identity provider and per-user roles before production.
+- Reviewer/publisher API: protected by JWT access-token verification against an explicitly configured OIDC issuer, audience and JWKS endpoint. Role claims are mapped to reviewer/publisher/admin permissions. Without configuration, privileged endpoints return 503; invalid tokens return 401 and insufficient roles return 403.
 - Worker: provider credentials only in its runtime environment; connector calls are disabled until configured.
 - Object storage: private by default; public access only through deliberate publication controls.
 

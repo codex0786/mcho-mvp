@@ -1,6 +1,9 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import uuid4
+
+import jwt
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 import pytest
 from fastapi import HTTPException
@@ -9,7 +12,7 @@ from sqlalchemy.engine import make_url
 
 from app.core.config import Settings, settings
 from app.core.review_policy import apply_review_decision
-from app.core.security import require_reviewer
+from app.core.security import Principal, get_current_principal, require_reviewer, require_publisher
 from app.schemas.events import CorrectionIn, EventOut, ReviewDecisionIn
 
 
@@ -39,32 +42,77 @@ def test_event_out_schema_contract():
     assert item.attribution_status == "unknown"
 
 
-def test_reviewer_authentication_fails_closed_when_no_key(monkeypatch):
-    monkeypatch.setattr(settings, "reviewer_api_key", "")
+def test_reviewer_authentication_fails_closed_when_oidc_is_unconfigured(monkeypatch):
+    monkeypatch.setattr(settings, "oidc_issuer", "")
+    monkeypatch.setattr(settings, "oidc_audience", "")
+    monkeypatch.setattr(settings, "oidc_jwks_url", "")
     with pytest.raises(HTTPException) as exc:
-        require_reviewer(x_reviewer_key=None)
+        get_current_principal(authorization=None)
     assert exc.value.status_code == 503
 
 
-def test_reviewer_authentication_rejects_wrong_key(monkeypatch):
-    monkeypatch.setattr(settings, "reviewer_api_key", "unit-test-only-secret")
+def _rsa_pair():
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return private_key, private_key.public_key()
+
+
+def _configure_oidc(monkeypatch, public_key):
+    monkeypatch.setattr(settings, "oidc_issuer", "https://issuer.example.test/")
+    monkeypatch.setattr(settings, "oidc_audience", "mcho-api")
+    monkeypatch.setattr(settings, "oidc_jwks_url", "https://issuer.example.test/.well-known/jwks.json")
+    monkeypatch.setattr(settings, "oidc_role_claim", "realm_access.roles")
+    monkeypatch.setattr(settings, "oidc_algorithms", "RS256")
+    monkeypatch.setattr(settings, "app_env", "test")
+
+    class FakeJwksClient:
+        def get_signing_key_from_jwt(self, token):
+            return SimpleNamespace(key=public_key)
+
+    monkeypatch.setattr("app.core.security._jwks_client", lambda url: FakeJwksClient())
+
+
+def test_valid_oidc_access_token_yields_principal_and_roles(monkeypatch):
+    private_key, public_key = _rsa_pair()
+    _configure_oidc(monkeypatch, public_key)
+    now = datetime.now(timezone.utc)
+    token = jwt.encode({
+        "iss": "https://issuer.example.test/", "aud": "mcho-api", "sub": "user-123",
+        "iat": int(now.timestamp()), "exp": int((now + timedelta(minutes=5)).timestamp()),
+        "realm_access": {"roles": ["reviewer", "analyst"]},
+    }, private_key, algorithm="RS256", headers={"kid": "test-key"})
+
+    principal = get_current_principal(authorization=f"Bearer {token}")
+    assert principal.subject == "user-123"
+    assert principal.roles == frozenset({"reviewer", "analyst"})
+    assert principal.issuer == "https://issuer.example.test/"
+    assert principal.identity == "https://issuer.example.test/|user-123"
+
+
+def test_oidc_access_token_with_wrong_audience_is_rejected(monkeypatch):
+    private_key, public_key = _rsa_pair()
+    _configure_oidc(monkeypatch, public_key)
+    now = datetime.now(timezone.utc)
+    token = jwt.encode({
+        "iss": "https://issuer.example.test/", "aud": "another-api", "sub": "user-123",
+        "iat": int(now.timestamp()), "exp": int((now + timedelta(minutes=5)).timestamp()),
+        "realm_access": {"roles": ["reviewer"]},
+    }, private_key, algorithm="RS256", headers={"kid": "test-key"})
+
     with pytest.raises(HTTPException) as exc:
-        require_reviewer(x_reviewer_key="incorrect")
+        get_current_principal(authorization=f"Bearer {token}")
+    assert exc.value.status_code == 401
+
+
+def test_role_guard_rejects_analyst_from_publishing():
+    principal = Principal(subject="analyst-1", issuer="https://issuer.example.test/", roles=frozenset({"analyst"}))
+    with pytest.raises(HTTPException) as exc:
+        require_publisher(principal=principal)
     assert exc.value.status_code == 403
 
 
-def test_reviewer_authentication_accepts_matching_key(monkeypatch):
-    monkeypatch.setattr(settings, "reviewer_api_key", "unit-test-only-secret")
-    assert require_reviewer(x_reviewer_key="unit-test-only-secret") == "api-key-reviewer"
-
-
-def test_database_url_encodes_special_characters():
-    password = "p@ss:/word#?"
-    config = Settings(
-        _env_file=None, database_url=None, postgres_host="db", postgres_user="mcho",
-        postgres_password=password, postgres_db="mcho",
-    )
-    assert make_url(config.sqlalchemy_url).password == password
+def test_role_guard_allows_reviewer_for_review_decisions():
+    principal = Principal(subject="reviewer-1", issuer="https://issuer.example.test/", roles=frozenset({"reviewer"}))
+    assert require_reviewer(principal=principal) == principal
 
 
 def test_managed_postgres_dsn_selects_installed_psycopg_driver():

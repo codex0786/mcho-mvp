@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.entities import Event, EventEvidence, SourceDocument, Source, EventRevision, EventStatus, VerificationStatus, AuditLog
 from app.schemas.events import EventOut, EventPage, CorrectionIn
-from app.core.security import require_reviewer
+from app.core.security import Principal, require_publisher
 
 router = APIRouter(prefix="", tags=["events"])
 
@@ -109,7 +109,7 @@ def map_events(
 
 
 @router.post("/events/{event_id}/corrections", status_code=201)
-def correct_event(event_id: UUID, body: CorrectionIn, reviewer: str = Depends(require_reviewer), db: Session = Depends(get_db)):
+def correct_event(event_id: UUID, body: CorrectionIn, reviewer: Principal = Depends(require_publisher), db: Session = Depends(get_db)):
     event = db.get(Event, event_id)
     if not event or event.is_synthetic:
         raise HTTPException(status_code=404, detail="Event not found.")
@@ -119,7 +119,7 @@ def correct_event(event_id: UUID, body: CorrectionIn, reviewer: str = Depends(re
         "event_start": event.event_start.isoformat() if event.event_start else None,
         "country_code": event.country_code}
     revision = EventRevision(event_id=event.id, revision_number=latest + 1, snapshot=snapshot,
-        changed_by=reviewer, rationale=body.rationale)
+        changed_by=reviewer.identity, rationale=body.rationale)
     if body.summary is not None:
         event.summary = body.summary
     if body.verification_status is not None:
@@ -127,8 +127,8 @@ def correct_event(event_id: UUID, body: CorrectionIn, reviewer: str = Depends(re
     event.status = EventStatus.corrected
     db.add(revision)
     db.add(AuditLog(
-        actor_id=reviewer, action="correct_event", subject_type="event", subject_id=str(event.id),
-        detail={"revision_number": latest + 1, "rationale": body.rationale},
+        actor_id=reviewer.identity, action="correct_event", subject_type="event", subject_id=str(event.id),
+        detail={"revision_number": latest + 1, "rationale": body.rationale, "issuer": reviewer.issuer},
     ))
     db.commit()
     return {"event_id": str(event.id), "revision_number": latest + 1, "status": event.status.value,
@@ -136,7 +136,7 @@ def correct_event(event_id: UUID, body: CorrectionIn, reviewer: str = Depends(re
 
 
 @router.post("/events/{event_id}/publish", status_code=200)
-def publish_event(event_id: UUID, reviewer: str = Depends(require_reviewer), db: Session = Depends(get_db)):
+def publish_event(event_id: UUID, reviewer: Principal = Depends(require_publisher), db: Session = Depends(get_db)):
     event = db.get(Event, event_id)
     if not event or event.is_synthetic:
         raise HTTPException(status_code=404, detail="Event not found.")
@@ -163,9 +163,9 @@ def publish_event(event_id: UUID, reviewer: str = Depends(require_reviewer), db:
     if event.event_type in {"civilian_casualties", "perpetrator_attribution", "mass_casualty", "blockade_violation"} and event.verification_status != VerificationStatus.verified:
         raise HTTPException(status_code=409, detail="This high-impact event category requires verified status before publication.")
     event.status = EventStatus.published
-    db.add(AuditLog(actor_id=reviewer, action="publish_event", subject_type="event", subject_id=str(event.id),
+    db.add(AuditLog(actor_id=reviewer.identity, action="publish_event", subject_type="event", subject_id=str(event.id),
                     detail={"verification_status": event.verification_status.value, "evidence_count": evidence_count,
-                            "eligible_evidence_count": eligible_evidence_count}))
+                            "eligible_evidence_count": eligible_evidence_count, "issuer": reviewer.issuer}))
     db.commit()
     return {"event_id": str(event.id), "status": event.status.value, "verification_status": event.verification_status.value,
-            "evidence_count": evidence_count, "eligible_evidence_count": eligible_evidence_count, "published_by": reviewer}
+            "evidence_count": evidence_count, "eligible_evidence_count": eligible_evidence_count, "published_by": reviewer.subject}

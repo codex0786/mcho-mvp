@@ -8,7 +8,7 @@
 - Event search with temporal, country, type, and verification filters.
 - GeoJSON map endpoint with PostGIS bounding-box filtering and representative points for MapLibre clustering.
 - Source registry, imagery scene, humanitarian indicator, and aggregate maritime endpoints.
-- Reviewer-key gated review-task listing, review decisions, correction recording, and evidence-gated publication endpoint.
+- OIDC JWT-protected review-task listing, decisions, correction recording, and evidence-gated publication endpoint with reviewer/publisher role gates.
 - Synthetic-only demo seed function; public event endpoints exclude synthetic records.
 - Celery worker scaffold and connector configuration guards for Copernicus, NASA FIRMS, and a licensed maritime provider.
 - Next.js/TypeScript MapLibre UI shell with map status, date/verification filters, event list, and no-live-data notice.
@@ -20,7 +20,7 @@
 - Actual satellite download, raster preprocessing, change detection, COG generation, and TiTiler deployment.
 - AIS passage detection, port geofencing, baseline calculation, and aggregate generation.
 - Creation/assignment of review tasks from ingestion and derived observations.
-- OIDC authentication, individual accounts, fine-grained roles, and reviewer identity attribution. The shared API key is development-only.
+- External OIDC provider setup, browser login/analyst workspace, provider-managed MFA, and operational user/role provisioning. OIDC API validation is implemented but remains unconfigured by default; reviewer endpoints fail closed.
 - Alert evaluation/delivery, Prometheus/Grafana dashboards, OpenTelemetry instrumentation, and backup automation.
 - Production object storage and raster tile services.
 - Antimeridian-crossing bbox support, cursor pagination, map clustering at scale, and spatial query performance benchmarks.

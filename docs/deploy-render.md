@@ -26,7 +26,7 @@ The Blueprint wires the API origin into the frontend using Render's `RENDER_EXTE
 - Managed PostgreSQL URLs using `postgres://` or `postgresql://` are normalized to SQLAlchemy's `postgresql+psycopg://` driver format. The API Dockerfile listens on the platform-provided `PORT`.
 - The Redis-compatible Key Value is configured for internal connections only. Keep queue access private.
 - `NEXT_PUBLIC_*` settings are browser-visible configuration; never put secrets in them.
-- The reviewer API key is intentionally not set in the Blueprint. Until a later phase adds OIDC/MFA and role-based authorization, reviewer endpoints should fail closed and should not be used as a production workflow.
+- OIDC issuer, API audience, JWKS URL and role claim are intentionally not set in the Blueprint because the organization must choose/configure its identity provider. Set them in the `mcho-api` service environment after configuring the provider; until then, reviewer endpoints return 503.
 - No ReliefWeb, HDX HAPI, Copernicus, NASA FIRMS or maritime ingestion is enabled. Never describe the site as live-data enabled until terms review, source connectors, QA and freshness monitoring pass.
 - Put real provider credentials only in the hosting dashboard's secret environment settings after checking source terms and least-privilege requirements.
 
@@ -39,7 +39,7 @@ Let `API_URL` be the public `mcho-api` URL without a trailing slash:
 - `GET $API_URL/api/v1/events` returns a valid empty or published-only page.
 - `GET $API_URL/api/v1/map/events?west=30&south=20&east=45&north=40` returns a valid GeoJSON FeatureCollection.
 - The frontend loads without CORS failures and shows an honest empty/no-live-data state until events are approved.
-- Reviewer endpoints fail closed while production authentication is not yet configured.
+- Reviewer endpoints fail closed until OIDC settings and access-token roles are configured.
 
 ## Rollback and migrations
 

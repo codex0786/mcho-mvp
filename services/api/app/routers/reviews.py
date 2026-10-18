@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.review_policy import apply_review_decision
-from app.core.security import require_reviewer
+from app.core.security import Principal, require_reviewer, require_review_queue_access
 from app.db.session import get_db
 from app.models.entities import AuditLog, Event, ReviewDecision, ReviewTask
 from app.schemas.events import ReviewDecisionIn
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/reviews", tags=["reviews"])
 @router.get("/tasks")
 def list_tasks(
     status: str = Query(default="pending", pattern="^(pending|in_review|needs_more_evidence|completed|cancelled)$"),
-    reviewer: str = Depends(require_reviewer),
+    reviewer: Principal = Depends(require_review_queue_access),
     db: Session = Depends(get_db),
 ):
     rows = db.scalars(
@@ -33,7 +33,7 @@ def list_tasks(
 def decide(
     task_id: UUID,
     body: ReviewDecisionIn,
-    reviewer: str = Depends(require_reviewer),
+    reviewer: Principal = Depends(require_reviewer),
     db: Session = Depends(get_db),
 ):
     task = db.get(ReviewTask, task_id)
@@ -53,13 +53,16 @@ def decide(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     decision = ReviewDecision(
-        task_id=task.id, reviewer_id=reviewer, decision=body.decision, rationale=body.rationale
+        task_id=task.id, reviewer_id=reviewer.identity, decision=body.decision, rationale=body.rationale
     )
     task.status = "needs_more_evidence" if body.decision == "request_more_evidence" else "completed"
     audit = AuditLog(
-        actor_id=reviewer, action="review_decision", subject_type=task.subject_type,
+        actor_id=reviewer.identity, action="review_decision", subject_type=task.subject_type,
         subject_id=str(task.subject_id),
-        detail={"task_id": str(task.id), "decision": body.decision, "rationale": body.rationale},
+        detail={
+            "task_id": str(task.id), "decision": body.decision, "rationale": body.rationale,
+            "issuer": reviewer.issuer, "roles": sorted(reviewer.roles),
+        },
     )
     db.add_all([decision, audit])
     db.commit()
@@ -68,4 +71,5 @@ def decide(
         "event_status": event.status.value if event else None,
         "verification_status": event.verification_status.value if event else None,
         "published": bool(event and event.status.value == "published"),
+        "reviewer_subject": reviewer.subject,
     }

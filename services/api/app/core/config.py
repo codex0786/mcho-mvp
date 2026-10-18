@@ -14,7 +14,11 @@ class Settings(BaseSettings):
     postgres_user: str = "mcho"
     postgres_password: str = "local-only"
     redis_url: str = "redis://localhost:6379/0"
-    reviewer_api_key: str = ""
+    oidc_issuer: str = ""
+    oidc_audience: str = ""
+    oidc_jwks_url: str = ""
+    oidc_role_claim: str = "roles"
+    oidc_algorithms: str = "RS256"
     cors_origins: str = "http://localhost:3000"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

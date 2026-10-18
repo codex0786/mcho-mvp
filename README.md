@@ -22,7 +22,7 @@ An evidence-first geospatial observatory starter. It is designed to connect date
 
 ## Quick start
 
-1. Copy `.env.example` to `.env` and set a strong local `POSTGRES_PASSWORD` and `REVIEWER_API_KEY`.
+1. Copy `.env.example` to `.env` and set a strong local `POSTGRES_PASSWORD`. Configure `OIDC_*` variables only when you have an OIDC provider and access-token settings ready; reviewer endpoints fail closed otherwise.
 2. Start services: `docker compose up --build -d db redis`.
 3. Run migrations: `docker compose run --rm api alembic upgrade head`.
 4. Start application services: `docker compose up --build api worker web`.
@@ -53,6 +53,10 @@ pytest
 ```
 
 The API requires PostgreSQL/PostGIS for the complete spatial schema. Unit tests should use fixtures/mocks where they do not require a database; integration tests should run against the Compose database.
+
+## Authentication
+
+Reviewer and publisher APIs validate signed OIDC/JWT access tokens, including issuer, audience, expiration, signing key and configured roles. See [OIDC authentication setup](./docs/security-oidc.md). The Render Blueprint does not guess an identity provider; configure its trusted issuer, API audience, JWKS URL and role claim before enabling review operations.
 
 ## Deployment
 

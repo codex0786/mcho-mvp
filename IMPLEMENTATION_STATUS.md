@@ -1,34 +1,35 @@
-# Implementation status — starter snapshot
+# Implementation status — MCHO MVP
 
-## Implemented in this repository
+## Implemented and committed
 
-- FastAPI application and OpenAPI documentation.
-- SQLAlchemy/PostGIS-oriented data models for source registry, source documents, events, claims, evidence, revisions, reviews, satellite scenes, humanitarian indicators, maritime aggregates, alerts, and audit records.
-- Initial Alembic migration that enables PostGIS and creates the schema.
-- Event search with temporal, country, type, and verification filters.
-- GeoJSON map endpoint with PostGIS bounding-box filtering and representative points for MapLibre clustering.
-- Source registry, imagery scene, humanitarian indicator, and aggregate maritime endpoints.
-- OIDC JWT-protected review-task listing, decisions, correction recording, and evidence-gated publication endpoint with reviewer/publisher role gates.
-- Synthetic-only demo seed function; public event endpoints exclude synthetic records.
-- Celery worker scaffold and connector configuration guards for Copernicus, NASA FIRMS, and a licensed maritime provider.
-- Next.js/TypeScript MapLibre UI shell with map status, date/verification filters, event list, and no-live-data notice.
-- Docker Compose, environment example, docs, and initial API schema tests.
+- FastAPI + SQLAlchemy/PostGIS data model and Alembic migrations for source registry, source documents, events, evidence, revisions, review tasks/decisions, satellite scene metadata, humanitarian indicators, aggregate maritime metrics, alerts and audit logs.
+- Public event APIs return only published, non-synthetic records; map endpoints return GeoJSON.
+- OIDC/JWT access-token validation against configured issuer, audience and JWKS, asymmetric algorithm allowlist, expiry/issued-at checks, configurable role claim and reviewer/publisher/admin role gates. Authentication fails closed when not configured.
+- Publication requires a non-synthetic event, allowed review status and at least one source document that is individually approved and attached to an active source with reviewed terms and a retention policy.
+- Source registration and activation require explicit license/use metadata and audit logging. When an evidence source or document is deactivated/disputed, public events without qualifying evidence are removed from public status and audited.
+- Manual ingestion run model, single-active-run constraint per source, checkpoints, external ID/content-hash deduplication, sanitized error ledger and run metrics.
+- Read-only ReliefWeb API v2 metadata connector: pre-approved app name/country-scope checks; bounded request size/page count; totalCount-based pagination; overlap-window checkpointing; stable metadata normalization; canonical source URL validation; source-document review tasks; no article body download/storage.
+- Admin-only endpoints to register/review source configuration, queue connector runs and inspect run/error status. Reviewer/analyst/publisher roles can inspect source-document metadata and links.
+- Docker Compose local stack and a Render Blueprint/deployment guide (not provisioned).
+- GitHub Actions pipeline for API compile/migration/tests on PostGIS, no-network connector tests, frontend typecheck/production build and API/worker/web Docker builds.
 
-## Not yet implemented / not validated
+## Current validation status
 
-- Real provider-specific ingestion and scheduled polling; all provider connectors are intentionally disabled placeholders.
-- Actual satellite download, raster preprocessing, change detection, COG generation, and TiTiler deployment.
-- AIS passage detection, port geofencing, baseline calculation, and aggregate generation.
-- Creation/assignment of review tasks from ingestion and derived observations.
-- External OIDC provider setup, browser login/analyst workspace, provider-managed MFA, and operational user/role provisioning. OIDC API validation is implemented but remains unconfigured by default; reviewer endpoints fail closed.
-- Alert evaluation/delivery, Prometheus/Grafana dashboards, OpenTelemetry instrumentation, and backup automation.
-- Production object storage and raster tile services.
-- Antimeridian-crossing bbox support, cursor pagination, map clustering at scale, and spatial query performance benchmarks.
-- Full end-to-end, database integration, frontend, security, and load testing.
-- Full Docker/Next.js build could not be validated in the current environment.
+Phase 4 implementation is being validated via GitHub Actions on the latest commit. The last completed Phase 3 run passed API/PostGIS tests, frontend typecheck/build and all container builds. Do not infer that Phase 4 passed until its new workflow run completes successfully.
 
-## Validation performed
+## Not yet operational
 
-- `python -m compileall` passed for API and worker Python files.
-- `PYTHONPATH=. pytest -q` in `services/api` passed: 2 tests.
-- Full container build and dependency installation not completed due environment limitations; do not interpret the scaffold as production-ready.
+- No cloud services have been provisioned; no live public URL exists from this repository.
+- OIDC provider/tenant, MFA policy, real roles and browser login token handling are not configured.
+- ReliefWeb app name, country scope and source terms are not configured; no live feed is enabled. Other HDX HAPI, Copernicus, NASA FIRMS and licensed maritime integrations remain future work/guards.
+- Ingestion-created source documents are review candidates, not event claims. Event creation/linking from approved documents and full analyst workbench are still needed for end-to-end analyst workflows.
+- Automated schedules, provider freshness alerts, production backups/restore testing, object storage, satellite raster processing/change analysis, maritime aggregation, observability dashboards, load tests and security assessment remain incomplete.
+- The first migration uses metadata-driven schema creation. Replace that legacy initial migration with explicit production-safe operations in a dedicated future migration before production use.
+
+## Trust and safety constraints
+
+- A source record or satellite change candidate is not a verified event.
+- No automatic event attribution or publication from source text.
+- Missing reports, imagery or AIS coverage are not evidence that an event did or did not occur.
+- Maritime output is limited to broad aggregate indicators; tactical live vessel tracking is out of scope.
+- The platform is not for targeting or tactical military decisions.

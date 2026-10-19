@@ -146,7 +146,11 @@ def publish_event(event_id: UUID, reviewer: Principal = Depends(require_publishe
         raise HTTPException(status_code=409, detail="Withdrawn events cannot be republished through this endpoint.")
     eligible_license_statuses = {"approved", "public_domain", "open_license", "licensed"}
     evidence_rows = db.execute(
-        select(EventEvidence.id, Source.active, Source.license_status)
+        select(
+            EventEvidence.id, Source.active, Source.license_status, Source.terms_reviewed_at,
+            Source.terms_reviewed_by, Source.license_terms_url, Source.retention_policy,
+            SourceDocument.review_status,
+        )
         .join(SourceDocument, EventEvidence.source_document_id == SourceDocument.id)
         .join(Source, SourceDocument.source_id == Source.id)
         .where(EventEvidence.event_id == event_id)
@@ -155,11 +159,16 @@ def publish_event(event_id: UUID, reviewer: Principal = Depends(require_publishe
     if evidence_count < 1:
         raise HTTPException(status_code=409, detail="At least one linked source record is required before publication.")
     eligible_evidence_count = sum(
-        1 for _, active, license_status in evidence_rows
-        if active and license_status in eligible_license_statuses
+        1 for _, active, license_status, terms_reviewed_at, terms_reviewed_by,
+        license_terms_url, retention_policy, document_review_status in evidence_rows
+        if active and license_status in eligible_license_statuses and terms_reviewed_at is not None
+        and terms_reviewed_by and license_terms_url and retention_policy and document_review_status == "approved"
     )
     if eligible_evidence_count < 1:
-        raise HTTPException(status_code=409, detail="Publication requires evidence from an active source with a reviewed, permitted use status.")
+        raise HTTPException(
+            status_code=409,
+            detail="Publication requires an active permitted source and an individually approved source document.",
+        )
     if event.event_type in {"civilian_casualties", "perpetrator_attribution", "mass_casualty", "blockade_violation"} and event.verification_status != VerificationStatus.verified:
         raise HTTPException(status_code=409, detail="This high-impact event category requires verified status before publication.")
     event.status = EventStatus.published

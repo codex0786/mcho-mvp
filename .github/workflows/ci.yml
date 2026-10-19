@@ -38,12 +38,9 @@ jobs:
     env:
       DATABASE_URL: postgresql+psycopg://mcho:mcho_test_password@localhost:5432/mcho_test
       APP_ENV: test
-      REVIEWER_API_KEY: ci-only-not-a-production-secret
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install API and test dependencies
@@ -55,6 +52,24 @@ jobs:
       - name: Run contract and policy tests
         run: pytest -q
 
+  worker-tests:
+    name: Ingestion connector tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/workers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install API and worker dependencies
+        run: python -m pip install --upgrade pip && pip install -e "../api[dev]" -r requirements.txt
+      - name: Compile worker source
+        run: python -m compileall -q mcho_workers tests
+      - name: Run no-network connector and normalization tests
+        run: pytest -q tests
+
   web-build:
     name: Frontend typecheck and production build
     runs-on: ubuntu-latest
@@ -62,10 +77,8 @@ jobs:
       run:
         working-directory: apps/web
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - name: Install dependencies
@@ -82,16 +95,14 @@ jobs:
     name: Docker image builds
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       - name: Build API image
         run: docker build --pull -f services/api/Dockerfile -t mcho-api:ci services/api
       - name: Build worker image
-        run: docker build --pull -f services/workers/Dockerfile -t mcho-worker:ci services/workers
-      - name: Build frontend image
+        run: docker build --pull -f services/workers/Dockerfile -t mcho-worker:ci .
+      - name: Build frontend image using the same-origin runtime proxy
         run: >-
           docker build --pull
-          --build-arg NEXT_PUBLIC_API_ORIGIN=https://mcho-api.onrender.com
           --build-arg NEXT_PUBLIC_MAP_STYLE_URL=
           -f apps/web/Dockerfile
           -t mcho-web:ci apps/web

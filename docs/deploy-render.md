@@ -27,7 +27,7 @@ The Blueprint wires the API origin into the frontend using Render's `RENDER_EXTE
 - The Redis-compatible Key Value is configured for internal connections only. Keep queue access private.
 - `NEXT_PUBLIC_*` settings are browser-visible configuration; never put secrets in them.
 - OIDC issuer, API audience, JWKS URL and role claim are intentionally not set in the Blueprint because the organization must choose/configure its identity provider. Set them in the `mcho-api` service environment after configuring the provider; until then, reviewer endpoints return 503.
-- No ReliefWeb, HDX HAPI, Copernicus, NASA FIRMS or maritime ingestion is enabled. Never describe the site as live-data enabled until terms review, source connectors, QA and freshness monitoring pass.
+- A ReliefWeb metadata connector is included but remains disabled until a pre-approved RELIEFWEB_APPNAME, explicit RELIEFWEB_COUNTRIES, an active source with reviewed terms/retention policy and human-review workflow are configured. It fetches metadata and links only. HDX HAPI, Copernicus, NASA FIRMS and maritime aggregation are not enabled. Never describe the site as live-data enabled until provider terms, QA and freshness monitoring pass.
 - Put real provider credentials only in the hosting dashboard's secret environment settings after checking source terms and least-privilege requirements.
 
 ## Smoke tests after deployment
@@ -49,4 +49,4 @@ Use the last successful application deployment for an app rollback. Database mig
 
 - Render has not been provisioned by this change.
 - The initial Alembic migration uses metadata-driven table creation. Replace it with explicit migrations and test upgrade/downgrade behavior before production.
-- OIDC/MFA/RBAC, real source connectors, raster/tile services, ingestion schedules, alerting, backup automation, and load/security tests are not completed.
+- The OIDC provider and MFA policy are not configured. Source/ingestion endpoints are implemented but no source is approved or active by default. Scheduled ingestion, HDX/Copernicus/NASA/maritime connectors, raster/tile services, alerting, backup automation, and load/security tests are not completed.

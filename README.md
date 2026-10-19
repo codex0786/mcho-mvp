@@ -1,6 +1,6 @@
 # MCHO — MENA Conflict & Humanitarian Observatory MVP
 
-An evidence-first geospatial observatory starter. It is designed to connect dated public reporting, human-reviewed event records, satellite scene metadata, and **aggregate** commercial maritime indicators. This repository contains no live conflict feed, provider credentials, or claims about current events. Demo records are explicitly synthetic.
+An evidence-first geospatial observatory starter. It is designed to connect dated public reporting, human-reviewed event records, satellite scene metadata, and **aggregate** commercial maritime indicators. This repository contains no enabled live conflict feed or committed provider credentials and makes no claims about current events. Demo records are explicitly synthetic.
 
 ## MVP safety and evidence principles
 
@@ -10,7 +10,7 @@ An evidence-first geospatial observatory starter. It is designed to connect date
 - Satellite change candidates are not automatically verified damage.
 - Missing imagery, missing reports, and AIS gaps are not evidence that an event did or did not occur.
 - Maritime endpoints expose aggregates only; detailed live vessel tracking is out of scope.
-- External connectors remain disabled until provider access, terms, and credentials are configured.
+- External connectors remain disabled until provider access, terms and credentials are configured; ReliefWeb additionally requires an approved app name and explicit country scope.
 
 ## Stack
 
@@ -19,6 +19,12 @@ An evidence-first geospatial observatory starter. It is designed to connect date
 - Celery worker scaffold
 - Next.js + TypeScript + MapLibre GL JS
 - Docker Compose for local development
+
+## Phase 4: metadata-only source ingestion
+
+The repository includes a **manual, disabled-by-default ReliefWeb API v2 adapter**. It stores source metadata and canonical links—not article bodies. An ingestion run creates a source-document review task; it does not create or publish event claims.
+
+See [the ingestion workflow](./docs/phase-4-ingestion.md) and [OIDC setup](./docs/security-oidc.md). A ReliefWeb source needs an admin-reviewed terms URL, retention policy, approved use status and explicit activation before an administrator can queue a run. The provider app name and country scope must also be configured in the worker. No provider is activated by default.
 
 ## Quick start
 

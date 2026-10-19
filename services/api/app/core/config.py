@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     oidc_jwks_url: str = ""
     oidc_role_claim: str = "roles"
     oidc_algorithms: str = "RS256"
+    reliefweb_appname: str = ""
+    reliefweb_countries: str = ""
+    reliefweb_initial_lookback_days: int = 7
+    reliefweb_max_pages: int = 3
+    reliefweb_page_size: int = 100
+    reliefweb_overlap_hours: int = 24
     cors_origins: str = "http://localhost:3000"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

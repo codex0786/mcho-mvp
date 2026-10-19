@@ -1,5 +1,5 @@
-# Render Blueprint for a small MCHO pilot. Applying it creates billable cloud resources.
-# Review service plans and recurring costs in Render before provisioning.
+# Render Blueprint for a small MCHO pilot. Applying it provisions billable cloud resources.
+# Review current pricing and every plan before provisioning.
 services:
   - type: keyvalue
     name: mcho-queue
@@ -34,7 +34,17 @@ services:
           type: keyvalue
           property: connectionString
       - key: CORS_ORIGINS
-        sync: false
+        value: ""
+      - key: OIDC_ISSUER
+        value: ""
+      - key: OIDC_AUDIENCE
+        value: ""
+      - key: OIDC_JWKS_URL
+        value: ""
+      - key: OIDC_ROLE_CLAIM
+        value: roles
+      - key: OIDC_ALGORITHMS
+        value: RS256
 
   - type: worker
     name: mcho-worker
@@ -42,7 +52,7 @@ services:
     region: singapore
     plan: starter
     dockerfilePath: ./services/workers/Dockerfile
-    dockerContext: ./services/workers
+    dockerContext: .
     autoDeployTrigger: checksPass
     envVars:
       - key: APP_ENV
@@ -58,6 +68,10 @@ services:
           name: mcho-queue
           type: keyvalue
           property: connectionString
+      - key: RELIEFWEB_APPNAME
+        sync: false
+      - key: RELIEFWEB_COUNTRIES
+        sync: false
 
   - type: web
     name: mcho-web
@@ -69,7 +83,7 @@ services:
     autoDeployTrigger: checksPass
     healthCheckPath: /
     envVars:
-      - key: NEXT_PUBLIC_API_ORIGIN
+      - key: MCHO_API_ORIGIN
         fromService:
           name: mcho-api
           type: web

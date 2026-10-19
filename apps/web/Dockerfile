@@ -7,10 +7,10 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN mkdir -p public
-ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
-ARG NEXT_PUBLIC_API_ORIGIN=
+# Default to the same-origin runtime proxy; local Compose may override this with a direct API URL.
+ARG NEXT_PUBLIC_API_BASE_URL=/api/backend/api/v1
 ARG NEXT_PUBLIC_MAP_STYLE_URL=
-ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL NEXT_PUBLIC_API_ORIGIN=$NEXT_PUBLIC_API_ORIGIN NEXT_PUBLIC_MAP_STYLE_URL=$NEXT_PUBLIC_MAP_STYLE_URL
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL NEXT_PUBLIC_MAP_STYLE_URL=$NEXT_PUBLIC_MAP_STYLE_URL
 RUN npm run build
 FROM node:22-alpine AS runner
 WORKDIR /app

@@ -14,6 +14,7 @@ from app.core.config import Settings, settings
 from app.core.review_policy import apply_review_decision
 from app.core.security import Principal, get_current_principal, require_reviewer, require_publisher
 from app.schemas.events import CorrectionIn, EventOut, ReviewDecisionIn
+from app.schemas.sources import SourceCreateIn, SourcePatchIn
 
 
 def test_review_decision_accepts_only_known_values():
@@ -23,6 +24,27 @@ def test_review_decision_accepts_only_known_values():
         ReviewDecisionIn(decision="publish_anything", rationale="This should not be accepted")
     with pytest.raises(ValidationError):
         ReviewDecisionIn(decision="verify", rationale="short")
+
+
+def test_source_registration_requires_https_terms_url():
+    valid = SourceCreateIn(
+        name="ReliefWeb MENA", source_type="reliefweb_reports",
+        homepage_url="https://reliefweb.int", license_terms_url="https://reliefweb.int/terms",
+        retention_policy="Store provider metadata and canonical source link only.",
+    )
+    assert str(valid.license_terms_url).startswith("https://")
+    with pytest.raises(ValidationError):
+        SourceCreateIn(
+            name="Unsafe URL Source", source_type="reliefweb_reports",
+            license_terms_url="http://example.org/terms",
+        )
+
+
+def test_source_activation_requires_explicit_licence_state():
+    with pytest.raises(ValidationError):
+        SourcePatchIn(license_status="not_reviewed")
+    with pytest.raises(ValidationError):
+        SourcePatchIn(active=None)
 
 
 def test_correction_rejects_invalid_verification_status():

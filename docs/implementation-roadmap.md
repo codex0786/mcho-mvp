@@ -57,7 +57,7 @@ provider, basemap provider, ReliefWeb app-name application.
 
 | Item | Closes | Size | Acceptance criteria |
 |---|---|---|---|
-| Staging API, worker, PostGIS and Redis (Render Blueprint or chosen alternative) | E1 | M | `/health/ready` OK; migrations run in pre-deploy; `scripts/smoke-test.sh` passes against live URLs |
+| Staging API, PostGIS and Redis on free tiers (Render + Neon + Upstash, `render.yaml`, [guide](./deploy-free-tier.md)); worker deferred until a free or approved paid option exists | E1 | M | `/health/ready` OK; migrations applied at start; `scripts/smoke-test.sh` passes against live URLs |
 | OIDC tenant with analyst/reviewer/publisher/admin roles; refresh-token or silent re-auth; IdP logout | E2, D5 | M | Three distinct accounts complete draft → review → publish in staging |
 | ReliefWeb live verification, then Celery beat schedule per active source and a freshness alert in `/ingestion/operations` | C1, C2 | M | One real run recorded with counts; a stale source is flagged; a failed run can be replayed |
 | Compose stack verified end-to-end; first backup/restore drill | E5 | S | Drill result recorded in the runbook |

@@ -68,6 +68,7 @@ export function createOidcUserManager(config: RuntimePublicConfig): UserManager 
     monitorSession: false,
     loadUserInfo: false,
     filterProtocolClaims: true,
+    clockSkewInSeconds: 30,
     ...(config.oidcResource ? { resource: config.oidcResource } : {}),
   };
   return new UserManager(settings);
@@ -99,7 +100,17 @@ export async function apiRequest<T>(
     let message = `API request failed (HTTP ${response.status}).`;
     try {
       const payload = await response.json() as { detail?: unknown };
-      if (typeof payload.detail === "string") message = payload.detail;
+      if (typeof payload.detail === "string") {
+        message = payload.detail;
+      } else if (Array.isArray(payload.detail)) {
+        const details = payload.detail.map((item) => {
+          if (item && typeof item === "object" && "msg" in item && typeof item.msg === "string") {
+            return item.msg;
+          }
+          return null;
+        }).filter((item): item is string => Boolean(item));
+        if (details.length) message = details.join(" ");
+      }
     } catch {
       // Preserve the safe status-only message for non-JSON upstream responses.
     }

@@ -287,7 +287,7 @@ export default function AnalystWorkspace() {
           <p>This workspace intentionally has no token-paste sign-in and does not expose privileged actions before OIDC is configured.</p>
           <p className="muted">Set <code>MCHO_OIDC_AUTHORITY</code> and <code>MCHO_OIDC_CLIENT_ID</code> on the web service, then align the API’s <code>OIDC_ISSUER</code>, <code>OIDC_AUDIENCE</code>, and <code>OIDC_JWKS_URL</code>. Configure the exact callback URL shown below in your identity provider.</p>
           <code className="callback-url">{callbackUrl}</code>
-          <p><Link className="text-link" href="/docs">API documentation</Link></p>
+          <p><a className="text-link" href="https://github.com/codex0786/mcho-mvp/blob/main/docs/security-oidc.md" target="_blank" rel="noopener noreferrer">OIDC setup guide ↗</a></p>
         </section>
         {error && <p className="error-banner" role="alert">{error}</p>}
       </main>

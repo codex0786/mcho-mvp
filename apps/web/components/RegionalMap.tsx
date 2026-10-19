@@ -97,7 +97,10 @@ export default function RegionalMap() {
   async function refresh(instance: MapLibreMap) {
     try {
       const b = instance.getBounds();
-      const url = new URL(`${API}/map/events`);
+      const endpoint = `${API.replace(/\/$/, "")}/map/events`;
+      const url = /^https?:\/\//i.test(endpoint)
+        ? new URL(endpoint)
+        : new URL(endpoint, window.location.origin);
       url.searchParams.set("west", String(b.getWest())); url.searchParams.set("south", String(b.getSouth()));
       url.searchParams.set("east", String(b.getEast())); url.searchParams.set("north", String(b.getNorth()));
       const from = (document.getElementById("from-date") as HTMLInputElement | null)?.value;

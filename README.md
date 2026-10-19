@@ -20,6 +20,16 @@ An evidence-first geospatial observatory starter. It is designed to connect date
 - Next.js + TypeScript + MapLibre GL JS
 - Docker Compose for local development
 
+## Fast preview: interactive UI without Docker
+
+Before starting the full stack, preview the actual interactive prototype with one command from the repository root:
+
+```bash
+bash scripts/start-interactive-demo.sh
+```
+
+Then open <http://127.0.0.1:3000/demo>. The launcher installs frontend dependencies if needed and starts only Next.js. It does not require a `.env` file, Docker, PostgreSQL/PostGIS, Redis, the API worker, OIDC configuration, a map style or live provider access. All data on this route are synthetic demo fixtures. Stop the server with `Ctrl+C`; optionally choose a port using `MCHO_DEMO_PORT=3001 bash scripts/start-interactive-demo.sh`. See [the local preview guide](./docs/phase-15-one-command-demo.md).
+
 ## Phase 9: operational readiness
 
 The API now separates liveness from readiness (PostgreSQL + PostGIS + Redis), returns per-dependency failure states, and logs request IDs/status/latency without logging tokens or bodies. The admin console includes source run/checkpoint timestamps. See [operations guide](./docs/phase-9-operations.md), [backup/restore](./docs/runbooks/backup-restore.md) and [incident response](./docs/runbooks/incident-response.md). Backup policies and alert routing still require environment-level configuration and drills.

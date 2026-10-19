@@ -6,6 +6,7 @@ OpenAPI docs are served at `/docs`.
 - `GET /api/v1/health/ready`
 - `GET /api/v1/auth/me` (verified OIDC access token; returns subject/issuer/roles, never the token)
 - `GET /api/v1/ingestion/configuration` (admin role; safe ReliefWeb config status, never returns the app-name value)
+- `GET /api/v1/ingestion/operations` (admin role; source checkpoint/run-state summary; operational metadata only)
 - `GET /api/v1/sources`
 - `GET /api/v1/events`
 - `POST /api/v1/events/drafts/from-document/{document_id}` (analyst/reviewer/admin OIDC role; source document must be individually approved and its source active with reviewed terms)
@@ -36,3 +37,6 @@ The analyst workspace includes a role-gated review queue. Reviewer/admin users c
 
 
 The admin-only source panel in `/analyst` supports source registration, review attestation, activation/deactivation, manual ingestion queueing and run summaries. The API reports configuration state without returning the app-name value; operators must also set the same app name and country scope on the worker. This is a configuration check, not an upstream connectivity check.
+
+
+Readiness now requires PostgreSQL, PostGIS and Redis. Liveness is intentionally process-only. API request logs include a validated request ID, route path, HTTP status and duration but omit query strings, request bodies, cookies and authorization tokens.

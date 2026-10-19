@@ -52,6 +52,36 @@ type IngestionConfig = {
   note: string;
 };
 
+type OperationsSummary = {
+  generated_at: string;
+  provider_configured_in_api_environment: boolean;
+  source_counts: {
+    total: number;
+    active: number;
+    terms_review_required: number;
+    provider_configuration_missing: number;
+    never_ingested: number;
+  };
+  active_runs: number;
+  runs_created_last_24h: { total: number; by_status: Record<string, number> };
+  sources: Array<{
+    id: string;
+    name: string;
+    source_type: string;
+    active: boolean;
+    license_status: string;
+    terms_reviewed: boolean;
+    operational_state: string;
+    latest_run_status: string | null;
+    latest_run_created_at: string | null;
+    latest_run_finished_at: string | null;
+    latest_checkpoint_updated_at: string | null;
+    latest_watermark: string | null;
+    hours_since_checkpoint: number | null;
+  }>;
+  note: string;
+};
+
 type Props = { accessToken: string };
 
 const eligibleLicenseStatuses = new Set(["approved", "public_domain", "open_license", "licensed"]);
@@ -66,11 +96,13 @@ export default function AdminSourcesPanel({ accessToken }: Props) {
   const [sources, setSources] = useState<Source[]>([]);
   const [runs, setRuns] = useState<IngestionRun[]>([]);
   const [configuration, setConfiguration] = useState<IngestionConfig | null>(null);
+  const [operations, setOperations] = useState<OperationsSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [attestations, setAttestations] = useState<Record<string, boolean>>({});
+  const [termsRationales, setTermsRationales] = useState<Record<string, string>>({});
   const [sourceEdits, setSourceEdits] = useState<Record<string, { termsUrl: string; retentionPolicy: string }>>({});
   const [name, setName] = useState("ReliefWeb Reports — MENA");
   const [homepageUrl, setHomepageUrl] = useState("https://reliefweb.int/");
@@ -85,15 +117,17 @@ export default function AdminSourcesPanel({ accessToken }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const [sourcePage, runPage, providerConfig] = await Promise.all([
+      const [sourcePage, runPage, providerConfig, ops] = await Promise.all([
         apiRequest<{ items: Source[] }>("/sources/admin?limit=200", accessToken),
         apiRequest<{ items: IngestionRun[] }>("/ingestion/runs?limit=50", accessToken),
         apiRequest<IngestionConfig>("/ingestion/configuration", accessToken),
+        apiRequest<OperationsSummary>("/ingestion/operations", accessToken),
       ]);
       setSources(sourcePage.items);
       setSourceEdits(Object.fromEntries(sourcePage.items.map((source) => [source.id, { termsUrl: source.license_terms_url ?? "", retentionPolicy: source.retention_policy ?? "" }])));
       setRuns(runPage.items);
       setConfiguration(providerConfig);
+      setOperations(ops);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to load source administration data.");
     } finally {
@@ -222,6 +256,42 @@ export default function AdminSourcesPanel({ accessToken }: Props) {
         <p className="muted">{configuration?.note ?? "Checking provider configuration…"}</p>
       </section>
 
+      {operations && (
+        <section className="provider-config-panel ops-snapshot">
+          <div className="provider-config-head">
+            <div>
+              <h3>Operational snapshot</h3>
+              <p className="muted">Generated {prettyDate(operations.generated_at)} · timestamps and states only, not a truth or provider-connectivity claim.</p>
+            </div>
+            <button className="secondary-button" type="button" disabled={loading} onClick={() => void refresh()}>Refresh ops snapshot</button>
+          </div>
+          <div className="ops-metric-grid">
+            <div><strong>{operations.source_counts.total}</strong><span>sources</span></div>
+            <div><strong>{operations.source_counts.active}</strong><span>active</span></div>
+            <div><strong>{operations.source_counts.terms_review_required}</strong><span>terms review needed</span></div>
+            <div><strong>{operations.source_counts.never_ingested}</strong><span>never ingested</span></div>
+            <div><strong>{operations.active_runs}</strong><span>queued/running/retrying</span></div>
+            <div><strong>{operations.runs_created_last_24h.total}</strong><span>runs created, 24h</span></div>
+          </div>
+          <div className="ops-source-list">
+            {operations.sources.map((item) => (
+              <div className="ops-source-row" key={item.id}>
+                <div className="document-row-head">
+                  <span className={`review-pill ${item.operational_state.startsWith("completed") ? "review-approved" : ""}`}>{item.operational_state.replaceAll("_", " ")}</span>
+                  <strong>{item.name}</strong>
+                </div>
+                <p className="muted">
+                  Last run: {item.latest_run_status ?? "never"} · finished {prettyDate(item.latest_run_finished_at)}
+                  {item.hours_since_checkpoint !== null ? ` · checkpoint age ${item.hours_since_checkpoint}h` : " · no checkpoint"}
+                </p>
+                {item.latest_watermark && <p className="document-hash">Provider watermark: {item.latest_watermark}</p>}
+              </div>
+            ))}
+          </div>
+          <p className="muted">{operations.note}</p>
+        </section>
+      )}
+
       <form className="admin-source-form" onSubmit={(event) => void registerSource(event)}>
         <h3>Register source (inactive by default)</h3>
         <div className="draft-two-col">
@@ -310,11 +380,26 @@ export default function AdminSourcesPanel({ accessToken }: Props) {
                     />
                     <span>I reviewed the linked terms for metadata access, attribution, reuse/redistribution and retention, and accept responsibility for this approval.</span>
                   </label>
+                  <label className="attestation-rationale">Terms-review rationale (recorded in audit log)
+                    <textarea
+                      required
+                      minLength={20}
+                      maxLength={2000}
+                      rows={2}
+                      value={termsRationales[source.id] ?? ""}
+                      onChange={(event) => setTermsRationales((current) => ({ ...current, [source.id]: event.target.value }))}
+                      placeholder="Describe permitted use, attribution/reuse conditions, and the agreed retention boundary."
+                    />
+                  </label>
                   <button
                     className="secondary-button"
                     type="button"
-                    disabled={saving || !source.license_terms_url || !attestations[source.id]}
-                    onClick={() => void patchSource(source, { license_status: "approved" }, `Terms approval recorded for ${source.name}. Source remains inactive.`)}
+                    disabled={saving || !source.license_terms_url || !attestations[source.id] || (termsRationales[source.id] ?? "").trim().length < 20}
+                    onClick={() => void patchSource(
+                      source,
+                      { license_status: "approved", terms_review_rationale: (termsRationales[source.id] ?? "").trim() },
+                      `Terms approval recorded for ${source.name}. Source remains inactive.`,
+                    )}
                   >Approve reviewed terms</button>
                 </div>
               )}

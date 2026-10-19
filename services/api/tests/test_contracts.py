@@ -270,3 +270,19 @@ def test_reliefweb_api_configuration_is_disabled_when_provider_settings_missing(
     assert result["configured_in_api_environment"] is False
     assert result["appname_configured"] is False
     assert result["country_scope"] == []
+
+
+
+def test_source_approval_requires_audit_rationale():
+    with pytest.raises(ValidationError, match="review rationale"):
+        SourcePatchIn(license_status="approved")
+    with pytest.raises(ValidationError, match="review rationale"):
+        SourcePatchIn(
+            license_status="approved",
+            terms_review_rationale="Terms checked.",
+        )
+    valid = SourcePatchIn(
+        license_status="approved",
+        terms_review_rationale="Metadata links only; attribution preserved; no body reuse.",
+    )
+    assert valid.license_status == "approved"

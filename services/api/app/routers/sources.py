@@ -139,6 +139,7 @@ def update_source(
         "license_terms_url": source.license_terms_url, "retention_policy": source.retention_policy,
     }
     patch = body.model_dump(exclude_unset=True)
+    terms_review_rationale = patch.pop("terms_review_rationale", None)
     if "homepage_url" in patch:
         patch["homepage_url"] = str(patch["homepage_url"]) if patch["homepage_url"] else None
     if "license_terms_url" in patch:
@@ -167,6 +168,8 @@ def update_source(
         if source.license_status in APPROVED_LICENSE_STATUSES:
             if not source.license_terms_url:
                 raise HTTPException(status_code=409, detail="A terms URL is required before approving a source.")
+            if not terms_review_rationale or len(terms_review_rationale.strip()) < 20:
+                raise HTTPException(status_code=422, detail="A written source-terms review rationale of at least 20 characters is required.")
             source.terms_reviewed_at = datetime.now(timezone.utc)
             source.terms_reviewed_by = principal.identity
         else:
@@ -192,6 +195,7 @@ def update_source(
                 "terms_reviewed_at": source.terms_reviewed_at.isoformat() if source.terms_reviewed_at else None,
             },
             "invalidated_event_count": invalidated_events, "issuer": principal.issuer,
+            "terms_review_rationale": terms_review_rationale,
         },
     ))
     db.commit()

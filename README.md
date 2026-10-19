@@ -20,6 +20,10 @@ An evidence-first geospatial observatory starter. It is designed to connect date
 - Next.js + TypeScript + MapLibre GL JS
 - Docker Compose for local development
 
+## Phase 9: operational readiness
+
+The API now separates liveness from readiness (PostgreSQL + PostGIS + Redis), returns per-dependency failure states, and logs request IDs/status/latency without logging tokens or bodies. The admin console includes source run/checkpoint timestamps. See [operations guide](./docs/phase-9-operations.md), [backup/restore](./docs/runbooks/backup-restore.md) and [incident response](./docs/runbooks/incident-response.md). Backup policies and alert routing still require environment-level configuration and drills.
+
 ## Phase 8: admin source registry and manual ingestion
 
 The admin-only panel provides source registration, terms/retention updates, terms approval, activation/deactivation, manual ReliefWeb run queueing, and run summaries. It displays API-side provider setup status without exposing the app-name value. Hosted ReliefWeb configuration requires matching `RELIEFWEB_APPNAME` and `RELIEFWEB_COUNTRIES` in both API and worker services; feeds remain disabled by default. See [the source-admin runbook](./docs/phase-8-source-admin.md).

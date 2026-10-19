@@ -14,6 +14,8 @@
 - Admin-only source-registry panel for registering inactive sources, explicit terms attestation, terms/retention edits, terms approval, activation/deactivation, manual ReliefWeb queueing and run summaries.
 - `/analyst` OIDC browser workspace with a source-document list, human-authored draft form, reviewer decision queue, contextual event/source task cards, rationale capture, and a separate publisher/admin publication action. API role checks and evidence gates remain authoritative.
 - Docker Compose local stack and a Render Blueprint/deployment guide (not provisioned).
+- API liveness/readiness probes with PostgreSQL/PostGIS/Redis dependency status, JSON request tracing with safe correlation IDs, and an admin operations summary for source checkpoints and ingestion-run states.
+- Staging smoke-test script plus backup/restore and incident-response runbooks. Host-level backup policies/alert routing are documented but not provisioned or rehearsed.
 - GitHub Actions pipeline for API compile/migration/tests on PostGIS, no-network connector tests, frontend typecheck/production build and API/worker/web Docker builds.
 
 ## Current validation status

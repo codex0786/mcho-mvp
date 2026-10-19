@@ -1,14 +1,15 @@
+from datetime import timedelta
 from uuid import UUID
 
 from celery import Celery
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import Principal, require_roles
 from app.db.session import get_db
-from app.models.entities import AuditLog, IngestionError, IngestionRun, Source, SourceDocument, SourceRecord
+from app.models.entities import AuditLog, IngestionError, IngestionRun, Source, SourceCheckpoint, SourceDocument, SourceRecord, utcnow
 from app.schemas.sources import APPROVED_LICENSE_STATUSES
 
 router = APIRouter(prefix="/ingestion", tags=["ingestion"])
@@ -123,6 +124,135 @@ def queue_source_run(
 
     db.refresh(run)
     return _run_dict(run)
+
+
+@router.get("/operations")
+def operations_summary(
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Read-only operational snapshot; reports timestamps and states, not inferred truth."""
+    now = utcnow()
+    provider_countries = [item.strip() for item in settings.reliefweb_countries.split(",") if item.strip()]
+    provider_configured = bool(settings.reliefweb_appname.strip() and provider_countries)
+
+    sources = db.scalars(select(Source).order_by(Source.name.asc())).all()
+    source_ids = [source.id for source in sources]
+    checkpoints = {}
+    if source_ids:
+        checkpoints = {
+            item.source_id: item
+            for item in db.scalars(
+                select(SourceCheckpoint).where(SourceCheckpoint.source_id.in_(source_ids))
+            ).all()
+        }
+
+    latest_times = (
+        select(
+            IngestionRun.source_id.label("source_id"),
+            func.max(IngestionRun.created_at).label("latest_created_at"),
+        )
+        .group_by(IngestionRun.source_id)
+        .subquery()
+    )
+    latest_runs = db.scalars(
+        select(IngestionRun).join(
+            latest_times,
+            and_(
+                IngestionRun.source_id == latest_times.c.source_id,
+                IngestionRun.created_at == latest_times.c.latest_created_at,
+            ),
+        )
+    ).all()
+    latest_run_by_source = {run.source_id: run for run in latest_runs}
+
+    cutoff = now - timedelta(hours=24)
+    recent_runs = db.scalars(
+        select(IngestionRun).where(IngestionRun.created_at >= cutoff)
+    ).all()
+    run_status_counts: dict[str, int] = {}
+    for run in recent_runs:
+        run_status_counts[run.status] = run_status_counts.get(run.status, 0) + 1
+
+    active_run_count = sum(
+        1 for run in latest_runs if run.status in {"queued", "running", "retrying"}
+    )
+    source_rows = []
+    never_ingested_count = 0
+    terms_review_required_count = 0
+    provider_missing_count = 0
+    active_source_count = 0
+    for source in sources:
+        checkpoint = checkpoints.get(source.id)
+        last_run = latest_run_by_source.get(source.id)
+        reviewed_terms = bool(
+            source.license_status in APPROVED_LICENSE_STATUSES
+            and source.terms_reviewed_at
+            and source.terms_reviewed_by
+            and source.license_terms_url
+            and source.retention_policy
+        )
+        if not reviewed_terms:
+            terms_review_required_count += 1
+        if source.active:
+            active_source_count += 1
+        if source.active and source.source_type == "reliefweb_reports" and not provider_configured:
+            provider_missing_count += 1
+
+        if not source.active:
+            operational_state = "inactive"
+        elif not reviewed_terms:
+            operational_state = "terms_review_required"
+        elif source.source_type == "reliefweb_reports" and not provider_configured:
+            operational_state = "provider_configuration_missing"
+        elif checkpoint is None:
+            operational_state = "never_ingested"
+            never_ingested_count += 1
+        elif last_run is not None:
+            operational_state = last_run.status
+        else:
+            operational_state = "checkpoint_without_run"
+
+        checkpoint_updated_at = checkpoint.updated_at if checkpoint else None
+        hours_since_checkpoint = (
+            round((now - checkpoint_updated_at).total_seconds() / 3600, 2)
+            if checkpoint_updated_at else None
+        )
+        cursor = checkpoint.cursor_json if checkpoint else {}
+        source_rows.append({
+            "id": str(source.id),
+            "name": source.name,
+            "source_type": source.source_type,
+            "active": source.active,
+            "license_status": source.license_status,
+            "terms_reviewed": reviewed_terms,
+            "operational_state": operational_state,
+            "latest_run_status": last_run.status if last_run else None,
+            "latest_run_created_at": last_run.created_at.isoformat() if last_run else None,
+            "latest_run_finished_at": last_run.finished_at.isoformat() if last_run and last_run.finished_at else None,
+            "latest_checkpoint_updated_at": checkpoint_updated_at.isoformat() if checkpoint_updated_at else None,
+            "latest_watermark": cursor.get("latest_watermark"),
+            "hours_since_checkpoint": hours_since_checkpoint,
+        })
+
+    return {
+        "generated_at": now.isoformat(),
+        "provider_configured_in_api_environment": provider_configured,
+        "source_counts": {
+            "total": len(sources),
+            "active": active_source_count,
+            "terms_review_required": terms_review_required_count,
+            "provider_configuration_missing": provider_missing_count,
+            "never_ingested": never_ingested_count,
+        },
+        "active_runs": active_run_count,
+        "runs_created_last_24h": {
+            "total": len(recent_runs),
+            "by_status": run_status_counts,
+        },
+        "sources": source_rows,
+        "note": "Manual-ingestion status and timestamps only. No periodic polling is configured; timestamps do not certify source truth or upstream connectivity.",
+    }
 
 
 @router.get("/runs")

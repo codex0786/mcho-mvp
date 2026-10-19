@@ -1,7 +1,7 @@
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 LicenseStatus = Literal[
     "unreviewed", "approved", "public_domain", "open_license", "licensed", "restricted", "blocked"
@@ -36,6 +36,15 @@ class SourcePatchIn(BaseModel):
     refresh_cadence: str | None = Field(default=None, max_length=80)
     license_status: LicenseStatus | None = None
     active: bool | None = None
+    terms_review_rationale: str | None = Field(default=None, min_length=20, max_length=2000)
+
+    @model_validator(mode="after")
+    def approved_status_requires_rationale(self):
+        if self.license_status in APPROVED_LICENSE_STATUSES:
+            rationale = (self.terms_review_rationale or "").strip()
+            if len(rationale) < 20:
+                raise ValueError("Approving source terms requires a review rationale of at least 20 characters.")
+        return self
 
     @field_validator("license_terms_url")
     @classmethod

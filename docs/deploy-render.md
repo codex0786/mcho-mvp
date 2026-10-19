@@ -40,16 +40,22 @@ After deployment, run the repository smoke test from a machine that can access b
 API_URL="https://<mcho-api-host>" WEB_URL="https://<mcho-web-host>" ./scripts/smoke-test.sh
 ```
 
-The script checks live and ready health, database/PostGIS readiness, event JSON shape, GeoJSON map shape, the web homepage, runtime public config and the same-origin API proxy. A passing smoke test proves basic wiring only—it is not evidence that any feed is active or that event records are accurate.
+The script checks live/ready health, PostgreSQL/PostGIS/Redis readiness, event JSON shape, GeoJSON map shape, the web homepage, runtime public config and the same-origin API proxy. A passing smoke test proves basic wiring only—it is not evidence that any feed is active or that event records are accurate.
 
 You can also check individual endpoints:
 
 - `GET $API_URL/api/v1/health/live` returns HTTP 200.
-- `GET $API_URL/api/v1/health/ready` returns HTTP 200 and confirms database/PostGIS readiness.
+- `GET $API_URL/api/v1/health/ready` returns HTTP 200 and confirms PostgreSQL, PostGIS and Redis readiness.
 - `GET $API_URL/api/v1/events?page_size=1` returns a valid published-only page.
 - `GET $API_URL/api/v1/map/events?west=30&south=20&east=45&north=40` returns a valid GeoJSON FeatureCollection.
 - `GET $WEB_URL/api/public-config` returns runtime public configuration but no secrets.
 - `GET $WEB_URL/api/backend/api/v1/health/live` verifies the same-origin proxy reaches the API.
+
+## Operations, backups and incident response
+
+- Read the [operations and readiness guide](./phase-9-operations.md).
+- Configure backup retention and rehearse recovery using the [backup/restore runbook](./runbooks/backup-restore.md); the Blueprint does not automatically configure a backup policy.
+- Use the [incident-response runbook](./runbooks/incident-response.md) for dependency outages, ingestion failures, data corrections and credential events.
 
 ## Rollback and migrations
 

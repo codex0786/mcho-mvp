@@ -41,7 +41,8 @@ checks = {
     "live": lambda x: x.get("status") == "alive",
     "ready": lambda x: x.get("status") == "ready"
         and x.get("dependencies", {}).get("database") == "ok"
-        and x.get("dependencies", {}).get("postgis") == "ok",
+        and x.get("dependencies", {}).get("postgis") == "ok"
+        and x.get("dependencies", {}).get("redis") == "ok",
     "events": lambda x: isinstance(x.get("items"), list)
         and "response_generated_at" in x,
     "map": lambda x: x.get("type") == "FeatureCollection"

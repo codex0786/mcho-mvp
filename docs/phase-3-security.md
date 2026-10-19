@@ -1,18 +1,26 @@
 # Phase 3 — Authentication and authorization gate
 
-## Implemented
-- Provider-neutral OIDC/JWT access-token verification using a trusted configured JWKS endpoint.
-- Signature validation, configured asymmetric algorithm allowlist, exact issuer and audience validation, expiration and issued-at checks, and a required subject.
+## Backend controls
+- Provider-neutral OIDC/JWT access-token verification via configured JWKS.
+- Asymmetric algorithm allowlist, exact issuer/audience checks, expiration/issued-at checks and required subject claim.
 - Configurable role claim (including nested claims such as `realm_access.roles`).
-- Separate reviewer and publisher permissions. Review decisions no longer accept the legacy shared API key.
-- Identity attribution uses the configured issuer and subject; relevant actions include role/issuer audit context.
-- Fail-closed behavior when OIDC configuration is absent.
+- Separate reviewer and publisher permissions; no shared API key.
+- Actor audit identity is `issuer|subject`; relevant actions carry issuer/role context.
+- Missing OIDC configuration fails closed.
+
+## Browser session controls (Phase 10 hardening)
+- Server-side Authorization Code + PKCE flow: cryptographically generated state, nonce and verifier.
+- Server-side discovery, token exchange, and ID-token signature/issuer/audience/nonce validation.
+- Short-lived access token stored only in an HttpOnly cookie scoped to the same-origin API proxy; no token in local/session storage and no bearer token passed from browser JavaScript.
+- Proxy ignores incoming browser Authorization headers, injects bearer token server-side, clears cookie on upstream 401, and enforces same-origin Origin on cookie-authenticated mutations.
+- Local logout clears the application session cookie; it does not promise to terminate the identity-provider session.
 
 ## Verification
-- Tests generate local RSA signing keys and verify valid token, wrong audience, missing configuration, role denial and role acceptance cases.
-- CI runs the API tests and PostGIS migration; remote CI status is linked from the repository README when applicable.
+- API tests generate RSA signing keys and verify valid tokens, wrong audience, missing configuration, insufficient role and authorized role paths.
+- GitHub Actions runs PostGIS migrations, API/worker tests, frontend typecheck/build and container builds.
 
-## Not yet complete
-- No concrete identity provider is configured; the owner must choose/create its tenant/resource and map roles.
-- No browser login UI, token refresh, analyst workbench or end-to-end login test is implemented.
-- MFA policies, account lifecycle, provider-side role provisioning and revocation are enforced/configured at the identity provider and remain deployment tasks.
+## Deployment tasks still required
+- Configure the real provider's client, exact redirect URI, API audience/resource and access-token role claims.
+- Enforce MFA and provision the admin/reviewer/publisher groups in the identity provider.
+- Test actual provider metadata/JWKS, sign-in, invalid state/nonce, token expiry and logout behavior in staging.
+- Complete CSP/XSS testing, dependency scanning and a production security review.

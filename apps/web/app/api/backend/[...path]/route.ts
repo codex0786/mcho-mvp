@@ -1,4 +1,5 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { isSameOriginMutation } from "../../../../lib/oidc-server";
 
 type RouteContext = { params: Promise<{ path: string[] }> };
 
@@ -34,13 +35,22 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
     return Response.json({ detail: "Backend API origin is invalid." }, { status: 503 });
   }
 
-  // Only forward headers the upstream API needs. In particular, do not pass
-  // browser cookies or hop-by-hop headers into the API service.
+  const sessionToken = request.cookies.get("mcho_access_token")?.value ?? "";
+  if (request.method !== "GET" && sessionToken && !isSameOriginMutation(request)) {
+    return Response.json(
+      { detail: "Cross-origin state-changing request rejected." },
+      { status: 403, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  // Only forward headers the upstream API needs. Never trust a browser-provided
+  // Authorization header: the bearer token comes only from the HttpOnly session cookie.
   const headers = new Headers();
-  for (const key of ["authorization", "content-type", "accept", "x-request-id"]) {
+  for (const key of ["content-type", "accept", "x-request-id"]) {
     const value = request.headers.get(key);
     if (value) headers.set(key, value);
   }
+  if (sessionToken) headers.set("Authorization", `Bearer ${sessionToken}`);
 
   try {
     const hasBody = request.method !== "GET" && request.method !== "HEAD";
@@ -58,7 +68,17 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
     const requestId = upstream.headers.get("x-request-id");
     if (requestId) responseHeaders.set("x-request-id", requestId);
     responseHeaders.set("cache-control", "no-store");
-    return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
+    const response = new NextResponse(upstream.body, { status: upstream.status, headers: responseHeaders });
+    if (upstream.status === 401 && sessionToken) {
+      response.cookies.set("mcho_access_token", "", {
+        httpOnly: true,
+        secure: request.nextUrl.protocol === "https:",
+        sameSite: "lax",
+        path: "/api/backend",
+        maxAge: 0,
+      });
+    }
+    return response;
   } catch {
     return Response.json(
       { detail: "Backend API is temporarily unavailable." },

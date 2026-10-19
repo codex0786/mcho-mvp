@@ -94,6 +94,8 @@ services:
           envVarKey: RENDER_EXTERNAL_URL
       - key: MCHO_MAP_STYLE_URL
         sync: false
+      - key: MCHO_WEB_ORIGIN
+        sync: false
       - key: MCHO_OIDC_AUTHORITY
         sync: false
       - key: MCHO_OIDC_CLIENT_ID

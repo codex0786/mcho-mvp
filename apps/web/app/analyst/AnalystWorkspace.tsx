@@ -3,16 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AdminSourcesPanel from "./AdminSourcesPanel";
-import type { User } from "oidc-client-ts";
 import {
   apiRequest,
-  createOidcUserManager,
   isOidcConfigured,
   loadRuntimeConfig,
   type ApiPrincipal,
   type RuntimePublicConfig,
 } from "../../lib/oidc";
-import type { UserManager } from "oidc-client-ts";
 
 type DocumentStatus = "pending_review" | "approved" | "provisional" | "disputed" | "rejected" | "needs_more_evidence";
 type EventType =
@@ -111,8 +108,7 @@ function metadataList(value: unknown): string[] {
 
 export default function AnalystWorkspace() {
   const [config, setConfig] = useState<RuntimePublicConfig | null>(null);
-  const [manager, setManager] = useState<UserManager | null>(null);
-  const [user, setUser] = useState<User | null>(null);
+  const [sessionActive, setSessionActive] = useState(false);
   const [principal, setPrincipal] = useState<ApiPrincipal | null>(null);
   const [booting, setBooting] = useState(true);
   const [loadingDocs, setLoadingDocs] = useState(false);
@@ -125,13 +121,13 @@ export default function AnalystWorkspace() {
   const [reviewingTaskId, setReviewingTaskId] = useState<string | null>(null);
   const [publishingEventId, setPublishingEventId] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
-  const [callbackUrl, setCallbackUrl] = useState("/auth/callback");
+  const [callbackUrl, setCallbackUrl] = useState("/api/auth/callback");
   const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftForm>(initialDraft);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const accessToken = user?.access_token ?? "";
+  const accessToken = sessionActive ? "cookie-session" : "";
 
   const roles = principal?.roles ?? [];
   const canDraft = roles.some((role) => ["analyst", "reviewer", "admin"].includes(role));
@@ -140,7 +136,7 @@ export default function AnalystWorkspace() {
   const canAccessReviewQueue = roles.some((role) => ["reviewer", "publisher", "admin"].includes(role));
 
   useEffect(() => {
-    setCallbackUrl(`${window.location.origin}/auth/callback`);
+    setCallbackUrl(`${window.location.origin}/api/auth/callback`);
   }, []);
 
   useEffect(() => {
@@ -154,15 +150,16 @@ export default function AnalystWorkspace() {
           setBooting(false);
           return;
         }
-        const oidcManager = createOidcUserManager(runtime);
-        const storedUser = await oidcManager.getUser();
-        if (!active) return;
-        setManager(oidcManager);
-        if (storedUser && !storedUser.expired && storedUser.access_token) {
-          setUser(storedUser);
-        } else {
-          if (storedUser) await oidcManager.removeUser();
-          setUser(null);
+        try {
+          const authenticatedPrincipal = await apiRequest<ApiPrincipal>("/auth/me", "cookie-session");
+          if (!active) return;
+          setPrincipal(authenticatedPrincipal);
+          setSessionActive(true);
+        } catch {
+          // No valid HttpOnly session is a normal signed-out state.
+          if (!active) return;
+          setSessionActive(false);
+          setPrincipal(null);
         }
       } catch (cause) {
         if (active) setError(cause instanceof Error ? cause.message : "Workspace initialization failed.");
@@ -175,7 +172,7 @@ export default function AnalystWorkspace() {
   }, []);
 
   useEffect(() => {
-    if (!manager || !accessToken) {
+    if (!sessionActive || !accessToken) {
       setPrincipal(null);
       setDocuments([]);
       setReviewTasks([]);
@@ -219,8 +216,8 @@ export default function AnalystWorkspace() {
         setPrincipal(null);
         setError(cause instanceof Error ? cause.message : "Unable to load authenticated workspace data.");
         if (cause instanceof Error && cause.message.includes("expired")) {
-          await manager?.removeUser();
-          setUser(null);
+          setSessionActive(false);
+          void fetch("/api/auth/logout", { method: "POST", credentials: "same-origin", headers: { "X-Requested-With": "MCHO" } });
         }
       } finally {
         if (active) {
@@ -231,7 +228,7 @@ export default function AnalystWorkspace() {
     }
     void loadWorkspace();
     return () => { active = false; };
-  }, [manager, accessToken, documentStatus, reviewTaskStatus, refreshTick]);
+  }, [sessionActive, accessToken, documentStatus, reviewTaskStatus, refreshTick]);
 
   const sourceCounts = useMemo(() => ({
     loaded: documents.length,
@@ -241,34 +238,31 @@ export default function AnalystWorkspace() {
   const signIn = useCallback(async () => {
     setError(null);
     setMessage(null);
-    if (!manager) {
+    if (!config || !isOidcConfigured(config)) {
       setError("OIDC is not configured for this deployment.");
       return;
     }
-    try {
-      await manager.signinRedirect();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to start sign-in.");
-    }
-  }, [manager]);
+    window.location.assign("/api/auth/login");
+  }, [config]);
 
   const signOut = useCallback(async () => {
     setError(null);
-    if (!manager) {
-      setUser(null);
-      setPrincipal(null);
-      return;
-    }
     try {
-      await manager.signoutRedirect();
-    } catch {
-      await manager.removeUser();
-      setUser(null);
+      const response = await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "X-Requested-With": "MCHO" },
+      });
+      if (!response.ok) throw new Error("Unable to clear the application session.");
+      setSessionActive(false);
       setPrincipal(null);
       setDocuments([]);
-      setMessage("Local session cleared. The identity provider may still have an active browser session.");
+      setReviewTasks([]);
+      setMessage("MCHO session cleared. Your identity provider may still have an active browser session.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Sign-out could not be completed.");
     }
-  }, [manager]);
+  }, []);
 
   const submitDraft = useCallback(async (documentId: string) => {
     if (!canDraft || !accessToken) {
@@ -417,27 +411,27 @@ export default function AnalystWorkspace() {
         </div>
         <div className="header-actions">
           <Link className="text-link" href="/">← Public observatory</Link>
-          {user && <button className="secondary-button" type="button" onClick={() => void signOut()}>Sign out</button>}
+          {sessionActive && <button className="secondary-button" type="button" onClick={() => void signOut()}>Sign out</button>}
         </div>
       </header>
 
       {error && <p className="error-banner" role="alert">{error}</p>}
       {message && <p className="success-banner" role="status">{message}</p>}
 
-      {!user || !accessToken ? (
+      {!sessionActive || !accessToken ? (
         <section className="workspace-card sign-in-card">
           <span className="status">Protected workspace</span>
           <h2>Sign in to continue</h2>
           <p>Use your organization’s identity provider. Access is enforced again by the API for every privileged operation.</p>
           <button className="primary-button" type="button" onClick={() => void signIn()}>Sign in securely</button>
-          <p className="muted">Authorization Code + PKCE · No client secret in the browser · Access token held in session scope</p>
+          <p className="muted">Authorization Code + PKCE · Access token held in an HttpOnly cookie · No bearer token exposed to browser JavaScript</p>
         </section>
       ) : (
         <>
           <section className="identity-strip">
             <div>
               <span className="muted">Signed in</span>
-              <strong>{principal?.subject ?? user.profile.sub ?? "Authenticated user"}</strong>
+              <strong>{principal?.subject ?? "Authenticated user"}</strong>
               <small>{principal?.issuer ?? "Validating roles with API…"}</small>
             </div>
             <div className="role-chips">

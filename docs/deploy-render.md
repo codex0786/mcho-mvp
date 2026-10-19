@@ -15,12 +15,12 @@ The Blueprint does not configure a real OIDC tenant, activate data sources or en
 3. Review every service, region, plan and recurring charge before confirming provisioning.
 4. After creation, confirm the API, worker, web service, private Key Value and database all deploy. Inspect the API pre-deploy logs to confirm Alembic migrations completed.
 5. Set `MCHO_MAP_STYLE_URL` on `mcho-web` to a permitted MapLibre style JSON URL if you want a basemap; blank is an intentional no-basemap state.
-6. Configure `MCHO_OIDC_AUTHORITY`, `MCHO_OIDC_CLIENT_ID` and optionally `MCHO_OIDC_RESOURCE` for `mcho-web`. Configure the matching `OIDC_ISSUER`, `OIDC_AUDIENCE`, and `OIDC_JWKS_URL` for `mcho-api`. Register the exact `https://<mcho-web-host>/auth/callback` redirect URL and `https://<mcho-web-host>/analyst` post-logout URL with the identity provider. Require MFA for privileged roles.
+6. Configure `MCHO_OIDC_AUTHORITY`, `MCHO_OIDC_CLIENT_ID` and optionally `MCHO_OIDC_RESOURCE` for `mcho-web`. Configure the matching `OIDC_ISSUER`, `OIDC_AUDIENCE`, and `OIDC_JWKS_URL` for `mcho-api`. Register the exact `https://<mcho-web-host>/api/auth/callback` redirect URI with the identity provider. The server-side flow clears the MCHO cookie on sign-out; provider logout is a separate identity-provider session and may remain active. Require MFA for privileged roles.
 7. Before enabling ReliefWeb ingestion, set the same `RELIEFWEB_APPNAME` and `RELIEFWEB_COUNTRIES` values on both `mcho-api` and `mcho-worker`. The admin panel reports API-side configuration only, not worker equality or provider connectivity.
 8. Keep `CORS_ORIGINS` blank unless you deliberately need browser clients to call the API directly. The MCHO web application uses a same-origin backend proxy, so it does not depend on browser CORS to reach the API.
 9. Open the Render-assigned `mcho-web` public URL.
 
-The frontend proxy uses the `MCHO_API_ORIGIN` value from Render’s `RENDER_EXTERNAL_URL`. It forwards only the authorization/content-type/accept/request-id headers required by the upstream API, strips cookies, uses no-store cache semantics, and restricts upstream selection to the configured server environment variable. Never pass a token in a URL or log a bearer token.
+The browser uses a same-origin Next.js backend proxy. The proxy ignores browser-supplied Authorization headers, reads the short-lived access token from a path-scoped HttpOnly cookie, injects it server-side, forwards only content-type/accept/request-id headers, and uses no-store cache semantics. State-changing cookie-authenticated calls require a same-origin Origin header. Never pass a token in a URL or log a bearer token. The OIDC authorization-code callback is `https://<mcho-web-host>/api/auth/callback`; Render's `RENDER_EXTERNAL_URL` provides the web origin unless `MCHO_WEB_ORIGIN` is set for a custom domain.
 
 ## Configuration and security
 

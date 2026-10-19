@@ -34,7 +34,7 @@ The `/analyst` workspace now includes the OIDC-protected review queue. Reviewers
 
 ## Phase 5: human-authored event drafts
 
-The API now allows an analyst/reviewer/admin to create an unpublished event draft from an individually approved source document. It records the report as a claim, links the document as evidence, creates revision 1 and a review task, and leaves verification/publication separate. See [the analyst workflow](./docs/phase-5-analyst-workflow.md). The `/analyst` browser workspace supports OIDC Authorization Code + PKCE, source-document inspection, and role-gated draft creation. It stays disabled until the organization configures an identity provider, registered redirects and matching API token validation settings.
+The API now allows an analyst/reviewer/admin to create an unpublished event draft from an individually approved source document. It records the report as a claim, links the document as evidence, creates revision 1 and a review task, and leaves verification/publication separate. See [the analyst workflow](./docs/phase-5-analyst-workflow.md). The `/analyst` browser workspace uses server-side OIDC Authorization Code + PKCE; the browser never receives the API bearer token. It supports source-document inspection, role-gated draft creation, reviewer decisions and a separate publisher action. The identity provider and matching API trust settings must be configured before sign-in works.
 
 ## Phase 4: metadata-only source ingestion
 
@@ -79,6 +79,10 @@ The API requires PostgreSQL/PostGIS for the complete spatial schema. Unit tests 
 ## Authentication
 
 Reviewer and publisher APIs validate signed OIDC/JWT access tokens, including issuer, audience, expiration, signing key and configured roles. See [OIDC authentication setup](./docs/security-oidc.md). The Render Blueprint does not guess an identity provider; configure its trusted issuer, API audience, JWKS URL and role claim before enabling review operations.
+
+## Phase 10: browser-session hardening
+
+The analyst sign-in flow uses an HttpOnly, same-origin session cookie rather than exposing access tokens to browser JavaScript. The Next.js server performs the code exchange, verifies the ID token, and injects the access token only when proxying to the API. State-changing requests are checked for same-origin Origin headers. See [BFF session hardening](./docs/phase-10-bff-session.md).
 
 ## Deployment
 

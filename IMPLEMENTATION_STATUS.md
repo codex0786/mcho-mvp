@@ -4,32 +4,30 @@
 
 - FastAPI + SQLAlchemy/PostGIS data model and Alembic migrations for source registry, source documents, events, evidence, revisions, review tasks/decisions, satellite scene metadata, humanitarian indicators, aggregate maritime metrics, alerts and audit logs.
 - Public event APIs return only published, non-synthetic records; map endpoints return GeoJSON.
-- OIDC/JWT access-token validation against configured issuer, audience and JWKS, asymmetric algorithm allowlist, expiry/issued-at checks, configurable role claim and reviewer/publisher/admin role gates. Authentication fails closed when not configured.
-- Publication requires a non-synthetic event, allowed review status and at least one source document that is individually approved and attached to an active source with reviewed terms and a retention policy.
-- Source registration and activation require explicit license/use metadata and audit logging. When an evidence source or document is deactivated/disputed, public events without qualifying evidence are removed from public status and audited.
-- Manual ingestion run model, single-active-run constraint per source, checkpoints, external ID/content-hash deduplication, sanitized error ledger and run metrics.
-- Read-only ReliefWeb API v2 metadata connector: pre-approved app name/country-scope checks; bounded request size/page count; totalCount-based pagination; overlap-window checkpointing; stable metadata normalization; canonical source URL validation; source-document review tasks; no article body download/storage.
-- Admin-only endpoints to register/review source configuration, queue connector runs and inspect run/error status. Reviewer/analyst/publisher roles can inspect source-document metadata and links.
-- OIDC-gated human-authored event draft endpoint from an individually approved source document. Creates a reported-claim row, supporting evidence link, immutable initial revision, review task and audit record; leaves the event pending review and unpublished.
-- Admin-only source-registry panel for registering inactive sources, explicit terms attestation, terms/retention edits, terms approval, activation/deactivation, manual ReliefWeb queueing and run summaries.
-- `/analyst` OIDC browser workspace with a source-document list, human-authored draft form, reviewer decision queue, contextual event/source task cards, rationale capture, and a separate publisher/admin publication action. API role checks and evidence gates remain authoritative.
-- Docker Compose local stack and a Render Blueprint/deployment guide (not provisioned).
-- API liveness/readiness probes with PostgreSQL/PostGIS/Redis dependency status, JSON request tracing with safe correlation IDs, and an admin operations summary for source checkpoints and ingestion-run states.
-- Staging smoke-test script plus backup/restore and incident-response runbooks. Host-level backup policies/alert routing are documented but not provisioned or rehearsed.
-- GitHub Actions pipeline for API compile/migration/tests on PostGIS, no-network connector tests, frontend typecheck/production build and API/worker/web Docker builds.
+- OIDC/JWT API access-token validation against configured issuer, audience and JWKS, with asymmetric algorithm allowlist, expiration/issued-at checks, configurable role claim and reviewer/publisher/admin role gates.
+- Browser authentication now uses server-side Authorization Code + PKCE, verified ID-token claims, short-lived HttpOnly access-token cookie scoped to the same-origin API proxy, no bearer token in browser storage, same-origin checks for cookie-authenticated mutations, and cookie clearing on logout/upstream 401.
+- Publication requires a non-synthetic event, allowed review status and at least one source document individually approved and attached to an active source with reviewed terms and a retention policy.
+- Source registration/activation requires explicit use metadata and audit logging. Evidence removal invalidates public events that no longer have qualifying evidence.
+- Manual ingestion run model, per-source single-active-run constraint, checkpoints, external ID/content-hash deduplication, sanitized error ledger and run metrics.
+- Read-only ReliefWeb API v2 metadata connector: pre-approved app name/country-scope gates, bounded fetch size/page count, totalCount pagination, overlap-window checkpointing, stable metadata normalization, canonical URL validation, review tasks and no article-body storage.
+- Admin-only source registry and manual ingestion controls; analyst/reviewer/publisher/admin source-document review UI; human-authored event-draft path; separate verification and publication actions.
+- Runtime liveness/readiness probes, safe request correlation logs, admin operational snapshot, staging smoke-test script, backup/restore and incident-response runbooks.
+- Docker Compose local stack and Render Blueprint/deployment guide (cloud has not been provisioned).
+- GitHub Actions CI for API/PostGIS migrations/tests, worker connector tests, frontend typecheck/build, smoke-test/Compose validation and all three Docker image builds.
 
 ## Current validation status
 
-Phase 4 implementation is being validated via GitHub Actions on the latest commit. The last completed Phase 3 run passed API/PostGIS tests, frontend typecheck/build and all container builds. Do not infer that Phase 4 passed until its new workflow run completes successfully.
+The most recent successful GitHub Actions run on the pre-BFF commit passed API/PostGIS tests, connector tests, frontend typecheck/production build and Docker image builds. The server-side BFF session work is pending its own full CI run; do not treat it as validated until that run completes successfully.
 
 ## Not yet operational
 
 - No cloud services have been provisioned; no live public URL exists from this repository.
-- OIDC provider/tenant and MFA policy are not configured. The `/analyst` browser workspace supports Authorization Code + PKCE, source-document inspection and role-gated draft creation, but remains disabled until the authority/client/resource and matching API issuer/audience/JWKS settings are supplied.
-- ReliefWeb app name/country scope and source terms remain deployment setup tasks; no live feed is enabled by default. The admin panel displays API-side configuration only and does not verify worker environment equality or upstream connectivity. Other HDX HAPI, Copernicus, NASA FIRMS and licensed maritime integrations remain future work/guards.
-- Ingestion-created source documents are review candidates, not event claims. The API and `/analyst` workspace support review decisions and manual draft creation/linking from approved documents; server-side HttpOnly-cookie BFF session, richer source term review controls and provider configuration remain follow-ups.
-- Automated schedules, provider freshness alerts, production backups/restore testing, object storage, satellite raster processing/change analysis, maritime aggregation, observability dashboards, load tests and security assessment remain incomplete.
-- The first migration uses metadata-driven schema creation. Replace that legacy initial migration with explicit production-safe operations in a dedicated future migration before production use.
+- The actual OIDC provider/tenant, client/resource, MFA policy and real user/role provisioning must be configured and tested in staging. The server-side BFF flow is code-complete but must be validated against the selected identity provider.
+- ReliefWeb app name/country scope and source terms remain deployment tasks; no live feed is enabled by default. Other HDX HAPI, Copernicus, NASA FIRMS and licensed maritime integrations remain future work/guards.
+- Ingestion-created source documents are review candidates, not event claims. The analyst workflow supports review and manual draft creation/linking from approved sources.
+- Automated schedules, provider freshness alerts, production backup/restore drills, object storage, satellite raster processing/change analysis, maritime aggregation, alert routing, load/security testing and independent security review remain incomplete.
+- The first migration uses legacy metadata-driven schema creation. Replace it with explicit production-safe operations before production use.
+- The hosted Render Blueprint has not been applied and may incur recurring charges when provisioned.
 
 ## Trust and safety constraints
 

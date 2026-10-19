@@ -44,7 +44,7 @@ Audit records identify the actor using the pair `issuer|subject`, and record rol
 ## Current boundaries
 
 - The public website remains readable without a token.
-- The `/analyst` workspace uses the generic OIDC Authorization Code + PKCE flow. It fetches public runtime configuration, stores the OIDC user in `sessionStorage`, validates the token with `GET /api/v1/auth/me`, and sends access tokens only through the same-origin Next.js backend proxy. The browser UI remains disabled until client/authority settings are supplied.
+- The `/analyst` workspace uses a server-side OIDC Authorization Code + PKCE flow. The Next.js server keeps the PKCE verifier/state/nonce in short-lived HttpOnly cookies, exchanges the authorization code server-side, verifies the ID token signature/issuer/audience/nonce, and stores the short-lived API access token in an HttpOnly, Secure (production), SameSite=Lax cookie scoped to the same-origin backend proxy. Browser JavaScript does not receive the bearer token. The proxy strips browser-supplied Authorization headers, reads the token cookie server-side, and injects the validated session token when forwarding to the API.
 - The Render Blueprint does not invent an issuer, client ID or secret. Configure `OIDC_ISSUER`, `OIDC_AUDIENCE` and `OIDC_JWKS_URL` for `mcho-api`; configure `MCHO_OIDC_AUTHORITY`, `MCHO_OIDC_CLIENT_ID` and optional `MCHO_OIDC_RESOURCE` for `mcho-web`. The expected API audience must match the access token audience and, when used, the requested resource.
 - Do not configure an HMAC/shared secret as the JWT signing key.
 - Tests use locally generated RSA keys and a mocked JWKS source; staging must additionally be tested against the real provider's JWKS, issuer, audience and role claims.
@@ -58,20 +58,21 @@ Audit records identify the actor using the pair `issuer|subject`, and record rol
 - [ ] Reviewer and publisher actions are attributable and audited.
 - [ ] Provider outage behavior and signing-key rotation are tested.
 - [ ] Account removal/role revocation behavior is documented.
-- [ ] Register the exact `https://your-web-host/auth/callback` redirect URI and `https://your-web-host/analyst` post-logout URI at the provider.
+- [ ] Register the exact `https://your-web-host/api/auth/callback` redirect URI at the provider. Local MCHO sign-out clears the app cookie; it does not necessarily sign the user out of the identity provider.
 - [ ] Production Content-Security-Policy, XSS prevention, browser security testing and token-expiration behavior are validated.
-- [ ] Consider a server-side, HttpOnly-cookie BFF session before storing high-privilege access tokens in a JavaScript-accessible SPA store.
+- [x] Access tokens are kept in a server-side HttpOnly cookie and never returned to browser JavaScript; keep short access-token lifetimes.
 
 
 ## Browser flow and deployment settings
 
-The analyst page creates a browser-only `oidc-client-ts` user manager using Authorization Code + PKCE, with no embedded client secret. It uses a session-scoped web-storage store and disables automatic silent renewal; users must sign in again when the access token expires. Session storage is still JavaScript-accessible, so it is not a substitute for XSS protection. A hardened production deployment should configure a strict Content-Security-Policy, avoid untrusted HTML/third-party scripts, and consider moving tokens behind a server-side HttpOnly-cookie session.
+The analyst workspace uses server-side Authorization Code + PKCE. State, nonce and PKCE verifier are generated with cryptographically secure randomness and stored briefly in HttpOnly cookies scoped to the callback. The server discovers the issuer metadata over HTTPS, exchanges the code without embedding a client secret, verifies the ID-token signature and claims using the provider JWKS, then places only the short-lived API access token in an HttpOnly cookie scoped to `/api/backend`. Access/ID/refresh tokens are not returned by the runtime-config endpoint and are not stored in browser Web Storage. No refresh token is persisted; after token expiry, the user signs in again. This reduces token extraction risk but does not replace a strict Content-Security-Policy, XSS prevention, dependency review or browser security testing.
 
 The frontend loads these runtime values from `GET /api/public-config`, so the same frontend image can be promoted between environments:
 
 - `MCHO_OIDC_AUTHORITY`: OIDC authority URL used for discovery
-- `MCHO_OIDC_CLIENT_ID`: public SPA client identifier; never a client secret
+- `MCHO_OIDC_CLIENT_ID`: public OIDC client identifier registered for the authorization-code flow; it is not a client secret
 - `MCHO_OIDC_RESOURCE`: optional resource/audience request parameter
+- `MCHO_WEB_ORIGIN`: optional exact public origin; Render's `RENDER_EXTERNAL_URL` is used when a custom origin is not configured
 - `MCHO_MAP_STYLE_URL`: approved MapLibre style URL
 
 API trust settings remain server-side. `OIDC_ISSUER` must exactly match the access-token `iss` claim; `OIDC_AUDIENCE` must match the API access-token `aud`; `OIDC_JWKS_URL` must be the trusted issuer's JWKS endpoint. A client-side role display is informative only—API role checks are authoritative.

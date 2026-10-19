@@ -1,42 +1,97 @@
-# Implementation roadmap and backlog
+# Implementation plan
 
-Companion to [current-state-assessment.md](./current-state-assessment.md). The
-earlier "Phase N" docs record what was built; this file orders what comes next.
-Complexity: S ≈ under a day, M ≈ 1–3 days, L ≈ a week or more.
+Acts on [gap-analysis.md](./gap-analysis.md) (gap IDs like A1, B3 refer to it).
+Size: S under a day, M 1–3 days, L about a week. "Blocked" means it needs a
+decision, account or approval from the project owner; everything else can
+start now.
 
-## Sequencing
+## Principles for ordering
 
-1. **Stabilise (now):** reproducible installs and migrations, trust-boundary fixes, a verified local full stack.
-2. **Hosted pilot (needs owner decision):** API + PostGIS + Redis + OIDC in one staging environment; live smoke tests.
-3. **Evidence depth:** confidence components, observation publication model, audit read API.
-4. **Sources:** one real adapter per family, each only after its licence review.
-5. **Analyst outputs:** search, saved views, CSV export with dataset version.
-6. **Production hardening:** rate limits, headers, metrics/alerts, backup drill, security review.
+1. Fix integrity defects before building on them (M0).
+2. Complete the evidence model before adding data volume, because every new source inherits it (M1).
+3. Build the real UI against the API with mocked responses so it doesn't wait on hosting (M2 runs in parallel with M3).
+4. Add a data family only after its licence review, and ship it behind the same review/publication gates as events (M4).
+5. No paid infrastructure, accounts or domains without explicit approval.
 
-## Backlog
+## M0 — Integrity fixes (≈1 week, no blockers)
 
-| ID | Item | Severity | Size | Depends on | Acceptance criteria |
-|---|---|---|---|---|---|
-| B-01 | Explicit migrations + drift check | High | M | — | **Done on `phase-17-reproducible-migrations`, pending CI.** Fresh DB `upgrade head` → `alembic check` clean; `downgrade base` → `upgrade head` clean. |
-| B-02 | Gate observation endpoints | High | S | — | **Done on the same branch.** Anonymous → 503/401, non-staff role → 403 (tests). |
-| B-03 | Commit `apps/web/package-lock.json`; switch CI and Dockerfile to `npm ci` | High | S | — | Two clean installs resolve identical versions; CI uses the lockfile. |
-| B-04 | Verify the Compose stack end-to-end | High | S | Docker | `scripts/start-local-stack.sh` passes its smoke tests on a clean checkout; result recorded. |
-| B-05 | Publication model for observations | High | L | B-01 | Imagery/maritime/humanitarian rows carry `source_document_id`/provenance, `is_synthetic`, review + publication status; public endpoints return only published, non-synthetic rows; then B-02's restriction can be relaxed for published rows. |
-| B-06 | Staging deployment (API, worker, PostGIS, Redis) | High | M | Owner approval of host + cost | `/health/ready` OK in staging; migrations applied by the pre-deploy step; `scripts/smoke-test.sh` passes against live URLs. |
-| B-07 | OIDC provider integration in staging | High | M | B-06, provider choice | Real sign-in to `/analyst`; analyst/reviewer/publisher roles mapped; a full draft→review→publish run done by three distinct accounts. |
-| B-08 | API rate limits and request-size limits | Medium | S | — | Excess requests return 429; oversized bodies rejected; tests. |
-| B-09 | Web security headers (CSP, frame-ancestors, referrer, HSTS in prod) | Medium | S | — | Headers present on all routes; `/demo` and `/analyst` still pass Playwright. |
-| B-10 | Confidence components (source reliability, corroboration, spatial/temporal precision) with versioned rules | Medium | L | — | Each component stored and explained; review status stays separate; scoring tests on representative cases. |
-| B-11 | Audit-log read API + admin view | Medium | M | — | Admins can filter audit entries by subject; non-admins get 403. |
-| B-12 | Scheduled ingestion (Celery beat) + freshness alert | Medium | M | B-06 | Schedule per active source; stale source surfaces in `/ingestion/operations`; failed run can be replayed. |
-| B-13 | ReliefWeb live verification | Medium | S | Approved app name, terms review | One real run recorded with counts; only then label the source as live. |
-| B-14 | Humanitarian indicator adapter (e.g. HDX HAPI) | Medium | L | Licence review, B-05 | Units, geography, period, source and caveats stored; missing ≠ zero; fixture tests. |
-| B-15 | Satellite scene metadata adapter (Copernicus) | Medium | L | Account, B-05 | Scene metadata (sensor, time, cloud cover, footprint) ingested; footprint has a GiST index; no damage claims. |
-| B-16 | Maritime aggregates | Low | L | Licensed provider, risk assessment, B-05 | Aggregates only, coarsened and delayed per assessment; no vessel-level data in API or exports. |
-| B-17 | Event search, saved filters, CSV export with filter + dataset version | Low | L | B-06 | Export matches filters; CSV escaping tested; export records its parameters. |
-| B-18 | Housekeeping: delete squash-merged phase branches; refresh `IMPLEMENTATION_STATUS.md` | Low | S | Owner confirmation | Only active branches remain; status file matches CI. |
+| Item | Closes | Size | Acceptance criteria |
+|---|---|---|---|
+| Correction stores the **post-edit** snapshot; revision 1..N always equals the event state at that revision | A1 | S | DB test: correct → latest revision snapshot equals current event fields |
+| Stale-run reaper: `running` older than a timeout → `failed` with a reason; `started_at` heartbeat | A2 | M | Test: a run stuck in `running` past the timeout no longer blocks a new run |
+| `SELECT … FOR UPDATE` on the review task in `decide` | A3 | S | Concurrent-decision test: exactly one succeeds, one gets 409 |
+| Retry only timeouts, connection errors, 429 and 5xx; fail fast on other 4xx | A4 | S | Connector tests for 403 (no retry) and 503 (retry) |
+| Global exception handler returning `{"detail", "request_id"}` JSON with the `X-Request-ID` header | A5 | S | Test with a failing DB dependency: 500 JSON plus request ID |
+| One `source_is_publishable()` used by all six call sites | A6 | S | Grep shows a single definition; existing tests stay green |
+| `/map/events` returns `truncated: true` and the limit; UI shows "showing first N" | A7 | S | Contract test |
+| Commit `apps/web/package-lock.json`; `npm ci` in CI and Dockerfile | D8 | S | CI uses the lockfile |
+| Security headers via `next.config.ts` (CSP, frame-ancestors, referrer, nosniff) | D7 | S | Headers present; Playwright still green |
 
-## Explicitly not planned without a new decision
+## M1 — Evidence model completion (≈2–3 weeks, no blockers)
+
+| Item | Closes | Size | Acceptance criteria |
+|---|---|---|---|
+| `POST /events/{id}/evidence`: link more approved documents as `supports`, `contradicts` or `context`; creates a revision and reopens review | B1, B2 | M | A link to an unapproved document is rejected; the event returns to review; audit entry written |
+| Full correction payload (type, times, location, uncertainty, country) with the same validators as drafts | B3 | M | Every field correctable; each correction is a new revision; review reopens |
+| Publisher `POST /events/{id}/withdraw` with a reason | B6 | S | Only publisher/admin; audited; event leaves the public API |
+| Public `/events/{id}/history` (revisions, review outcomes without reviewer identity) and an evidence response that includes document review status and relationship | B4 | M | Unpublished/synthetic events stay 404; no reviewer PII exposed |
+| Confidence v1: stored components (source reliability, corroboration count, spatial precision, temporal precision) plus a versioned rule set and a written methodology; review status kept separate | B5 | L | Each component explained in the API; scoring tests on representative cases; `docs/methodology/confidence.md` |
+| Use `claims` (claim per evidence link) or drop the table; decide on `alerts` | B7 | S | No unused tables remain |
+
+## M2 — Real-data product UI (≈3 weeks, parallel with M3)
+
+| Item | Closes | Size | Acceptance criteria |
+|---|---|---|---|
+| Shared component library extracted from `/demo` (nav, panels, status badges, empty/error/loading states) | D1 | M | `/demo` rebuilt on it with no visual regressions (Playwright) |
+| Event explorer page on `GET /events` (filters: date, country, type, verification) with URL-encoded filter state | D1, D2 | M | Filters round-trip through the URL; Playwright tests against intercepted API responses |
+| Event detail page with an evidence panel (supports/contradicts, timestamps, review status, confidence explanation, history) | D2, B4 | M | Shows conflicting evidence side by side; stale and disputed states visibly labelled |
+| Rewrite the home map as a controlled React component (no `getElementById`), with a permitted no-key basemap or an explicit "no basemap" layer | D2, D3 | M | Works with no style URL configured; truncation notice shown |
+| Clear mode labelling across the app: synthetic, pending review, disputed, stale, published | D1 | S | Each state has a test fixture and a visual label |
+
+## M3 — Hosted staging and live data (≈2 weeks once unblocked) — **Blocked**
+
+Owner decisions needed first: hosting provider and monthly budget, identity
+provider, basemap provider, ReliefWeb app-name application.
+
+| Item | Closes | Size | Acceptance criteria |
+|---|---|---|---|
+| Staging API, worker, PostGIS and Redis (Render Blueprint or chosen alternative) | E1 | M | `/health/ready` OK; migrations run in pre-deploy; `scripts/smoke-test.sh` passes against live URLs |
+| OIDC tenant with analyst/reviewer/publisher/admin roles; refresh-token or silent re-auth; IdP logout | E2, D5 | M | Three distinct accounts complete draft → review → publish in staging |
+| ReliefWeb live verification, then Celery beat schedule per active source and a freshness alert in `/ingestion/operations` | C1, C2 | M | One real run recorded with counts; a stale source is flagged; a failed run can be replayed |
+| Compose stack verified end-to-end; first backup/restore drill | E5 | S | Drill result recorded in the runbook |
+
+## M4 — Observation families (≈4–6 weeks, each blocked on its licence review)
+
+| Item | Closes | Size | Acceptance criteria |
+|---|---|---|---|
+| Observation publication model: `source_document_id`, `is_synthetic`, review and publication status on all three tables; public endpoints serve only published rows; relax PR #5's staff-only gate for those rows | C4 | M | Migration plus tests; unpublished rows invisible publicly |
+| Humanitarian indicators adapter (first; lowest risk), e.g. HDX HAPI after a terms review | C3 | L | Units, geography, period, source and caveats stored; missing ≠ 0; fixture tests; explorer charts in M2 style |
+| Satellite scene **metadata** adapter (e.g. Copernicus catalogue): sensor, time, cloud cover, footprint with GiST index | C3 | L | No damage claims; observation kept separate from interpretation |
+| Maritime aggregates, **only** with a licensed provider and a written risk assessment: coarsened, delayed, aggregate-only | C3 | L | No vessel-level data in API, map or export; anomaly flags carry their baseline |
+
+## M5 — Analyst outputs and production hardening (≈3–4 weeks)
+
+| Item | Closes | Size | Acceptance criteria |
+|---|---|---|---|
+| Search, saved filters, CSV export recording filters and dataset version | D4 | L | Export matches filters; CSV escaping tested |
+| Audit-log API and admin view; generic source admin (beyond ReliefWeb) | D6 | M | Admin-only; filterable by subject |
+| Duplicate-candidate detection between events (flag only, never auto-merge) | B8 | M | Candidates shown to reviewers with the matching signals |
+| Retention enforcement job per source policy | C5 | M | Expired raw metadata pruned; derived records keep references |
+| Rate limits, body-size limits, DB statement timeout | E3, E4 | S | 429 and 413 tests |
+| Metrics (latency, errors, queue depth, freshness) and alert routing | E4 | M | A dashboard plus at least one alert verified firing |
+| External security review and source-licensing review before any public launch | — | — | Findings tracked to closure |
+
+## Decisions the owner needs to make
+
+1. Merge PR #5 (reproducible migrations, observation gate).
+2. Hosting provider and budget for staging (M3).
+3. Identity provider (M3).
+4. Basemap provider, or accept a no-basemap map (M2).
+5. Apply for a ReliefWeb app name and approve its terms (M3).
+6. Which humanitarian source to integrate first (M4).
+
+## Explicitly out of scope without a new decision
+
 - Automated event creation or publication from source text.
 - Real-time or vessel-level maritime tracking.
 - Any paid infrastructure, domain purchase or provider account creation.

@@ -112,8 +112,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate smoke-test shell syntax
-        run: bash -n scripts/smoke-test.sh
+      - name: Validate shell scripts
+        run: bash -n scripts/smoke-test.sh && bash -n scripts/start-interactive-demo.sh
       - name: Validate Compose configuration
         run: cp .env.example .env && docker compose config --quiet
       - name: Build API image

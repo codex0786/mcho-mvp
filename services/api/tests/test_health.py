@@ -56,3 +56,28 @@ def test_request_tracing_returns_correlation_id_and_does_not_log_bearer_token(ca
     assert response.headers["x-request-id"] == "test-trace-123"
     assert "request_finished" in caplog.text
     assert token_marker not in caplog.text
+
+
+def test_redis_url_shape_never_includes_credentials():
+    from app.routers.health import redis_url_shape
+
+    shape = redis_url_shape("rediss://default:s3cr3t-pa55@fine-x-123.upstash.io:6379?ssl_cert_reqs=required")
+    assert "s3cr3t" not in shape and "default" not in shape and "fine-x-123" not in shape
+    assert shape == "scheme=rediss host_domain=upstash.io port=6379 has_password=True ssl_cert_reqs=required"
+
+
+def test_redis_url_shape_flags_common_mistakes():
+    from app.routers.health import redis_url_shape
+
+    assert redis_url_shape("https://fine-x.upstash.io").startswith("scheme=https ")
+    assert "ssl_cert_reqs=absent" in redis_url_shape("redis://default:pw@fine-x.upstash.io:6379")
+    assert "has_password=False" in redis_url_shape("rediss://fine-x.upstash.io:6379")
+
+
+def test_app_logging_reaches_a_handler_at_configured_level():
+    import logging
+    from app.main import configure_app_logging
+
+    logger = configure_app_logging("warning")
+    assert logger.handlers and logger.level == logging.WARNING
+    configure_app_logging("info")

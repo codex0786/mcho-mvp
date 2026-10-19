@@ -1,4 +1,6 @@
 import logging
+from urllib.parse import parse_qs, urlsplit
+
 from redis import Redis
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
@@ -9,6 +11,23 @@ from app.db.session import get_db
 
 router = APIRouter(prefix="/health", tags=["health"])
 logger = logging.getLogger("mcho.health")
+
+
+def redis_url_shape(url: str) -> str:
+    """Describe a Redis URL's structure for diagnostics without its credentials."""
+    try:
+        parts = urlsplit(url.strip())
+        host = parts.hostname or ""
+        port = parts.port
+    except ValueError:
+        return "unparseable"
+    labels = host.split(".")
+    domain = ".".join(labels[-2:]) if len(labels) >= 2 else (host or "none")
+    params = parse_qs(parts.query)
+    return (
+        f"scheme={parts.scheme or 'none'} host_domain={domain} port={port or 'default'} "
+        f"has_password={bool(parts.password)} ssl_cert_reqs={','.join(params.get('ssl_cert_reqs', [])) or 'absent'}"
+    )
 
 
 def redis_dependency_ready() -> bool:
@@ -23,7 +42,10 @@ def redis_dependency_ready() -> bool:
         )
         return bool(client.ping())
     except Exception as exc:
-        logger.warning("redis_readiness_failed error_type=%s", type(exc).__name__)
+        logger.warning(
+            "redis_readiness_failed error_type=%s %s",
+            type(exc).__name__, redis_url_shape(settings.redis_url),
+        )
         return False
     finally:
         if client is not None:

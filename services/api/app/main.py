@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import sys
 import time
 import uuid
 
@@ -9,6 +10,24 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.routers import auth, events, health, ingestion, observations, reviews, sources
+
+
+def configure_app_logging(level_name: str) -> logging.Logger:
+    """Send the application's own ``mcho.*`` loggers to stdout at LOG_LEVEL.
+
+    Uvicorn configures only its own loggers, so without this the JSON request logs
+    and dependency warnings never reach the host's log stream.
+    """
+    logger = logging.getLogger("mcho")
+    logger.setLevel(getattr(logging, level_name.strip().upper(), logging.INFO))
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+        logger.addHandler(handler)
+    return logger
+
+
+configure_app_logging(settings.log_level)
 
 app = FastAPI(
     title="MCHO API",

@@ -35,8 +35,8 @@ class ReviewDecisionIn(BaseModel):
 
 class CorrectionIn(BaseModel):
     rationale: str = Field(min_length=10, max_length=5000)
-    summary: str | None = Field(default=None, max_length=5000)
-    verification_status: str | None = Field(default=None, pattern="^(unverified|provisional|verified|disputed|rejected)$")
+    summary: str | None = Field(default=None, min_length=15, max_length=5000)
+    verification_status: Literal["unverified"] | None = None
 
 
 EventType = Literal[

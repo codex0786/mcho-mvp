@@ -4,11 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.review_policy import apply_review_decision
+from app.core.review_policy import apply_review_decision, ensure_independent_reviewer
 from app.core.security import Principal, require_reviewer, require_review_queue_access
 from app.db.session import get_db
 from app.models.entities import (
-    AuditLog, Event, EventEvidence, EventStatus, ReviewDecision, ReviewTask,
+    AuditLog, Event, EventEvidence, EventRevision, EventStatus, ReviewDecision, ReviewTask,
     Source, SourceDocument, utcnow,
 )
 from app.schemas.events import ReviewDecisionIn
@@ -88,7 +88,14 @@ def decide(
         event = db.get(Event, task.subject_id)
         if event is None:
             raise HTTPException(status_code=409, detail="Review task references a missing event.")
+        latest_revision = db.scalar(
+            select(EventRevision).where(EventRevision.event_id == event.id)
+            .order_by(EventRevision.revision_number.desc()).limit(1)
+        )
+        if latest_revision is None:
+            raise HTTPException(status_code=409, detail="Event has no immutable revision to review.")
         try:
+            ensure_independent_reviewer(latest_revision.changed_by, reviewer.identity)
             apply_review_decision(event, body.decision)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc

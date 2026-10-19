@@ -5,9 +5,12 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from geoalchemy2.elements import WKTElement
 from app.db.session import get_db
-from app.models.entities import (Event, EventEvidence, SourceDocument, Source, EventRevision, EventStatus, VerificationStatus, AuditLog, Claim, ReviewTask, utcnow)
+from app.models.entities import (Event, EventEvidence, SourceDocument, Source, EventRevision, EventStatus, VerificationStatus, AuditLog, Claim, ReviewTask, ReviewDecision, utcnow)
 from app.schemas.events import EventOut, EventPage, CorrectionIn, EventDraftFromDocumentIn
 from app.core.security import Principal, require_publisher, require_roles
+from app.core.review_policy import (
+    ensure_independent_publisher, ensure_review_after_latest_revision, is_approval_decision,
+)
 
 router = APIRouter(prefix="", tags=["events"])
 require_analyst = require_roles("analyst", "reviewer", "admin")
@@ -233,41 +236,152 @@ def map_events(
 
 
 @router.post("/events/{event_id}/corrections", status_code=201)
-def correct_event(event_id: UUID, body: CorrectionIn, reviewer: Principal = Depends(require_publisher), db: Session = Depends(get_db)):
+def correct_event(
+    event_id: UUID,
+    body: CorrectionIn,
+    reviewer: Principal = Depends(require_publisher),
+    db: Session = Depends(get_db),
+):
     event = db.get(Event, event_id)
     if not event or event.is_synthetic:
         raise HTTPException(status_code=404, detail="Event not found.")
-    latest = db.scalar(select(func.max(EventRevision.revision_number)).where(EventRevision.event_id == event_id)) or 0
-    snapshot = {"event_type": event.event_type, "summary": event.summary,
-        "verification_status": event.verification_status.value, "status": event.status.value,
+    if event.status == EventStatus.withdrawn:
+        raise HTTPException(status_code=409, detail="Withdrawn events cannot be corrected through this endpoint.")
+
+    latest_number = db.scalar(
+        select(func.max(EventRevision.revision_number)).where(EventRevision.event_id == event_id)
+    ) or 0
+    if latest_number < 1:
+        raise HTTPException(status_code=409, detail="Event has no revision history to correct.")
+    snapshot = {
+        "event_type": event.event_type,
+        "summary": event.summary,
+        "verification_status": event.verification_status.value,
+        "status": event.status.value,
         "event_start": event.event_start.isoformat() if event.event_start else None,
-        "country_code": event.country_code}
-    revision = EventRevision(event_id=event.id, revision_number=latest + 1, snapshot=snapshot,
-        changed_by=reviewer.identity, rationale=body.rationale)
+        "event_end": event.event_end.isoformat() if event.event_end else None,
+        "country_code": event.country_code,
+        "confidence_label": event.confidence_label,
+        "spatial_uncertainty_m": event.spatial_uncertainty_m,
+    }
+    revision = EventRevision(
+        event_id=event.id,
+        revision_number=latest_number + 1,
+        snapshot=snapshot,
+        changed_by=reviewer.identity,
+        rationale=body.rationale,
+    )
     if body.summary is not None:
-        event.summary = body.summary
-    if body.verification_status is not None:
-        event.verification_status = VerificationStatus(body.verification_status)
+        event.summary = body.summary.strip()
+    # A correction must return to independent review; a publisher cannot self-assert
+    # verified/provisional status in the correction payload.
+    event.verification_status = VerificationStatus.unverified
     event.status = EventStatus.corrected
     db.add(revision)
+
+    active_task_id = db.scalar(
+        select(ReviewTask.id).where(
+            ReviewTask.subject_type == "event",
+            ReviewTask.subject_id == event.id,
+            ReviewTask.status.in_(["pending", "in_review", "needs_more_evidence"]),
+        ).limit(1)
+    )
+    if active_task_id is None:
+        db.add(ReviewTask(
+            subject_type="event",
+            subject_id=event.id,
+            status="pending",
+            priority="high" if event.event_type in {
+                "civilian_casualties", "mass_casualty", "perpetrator_attribution", "blockade_violation"
+            } else "normal",
+        ))
     db.add(AuditLog(
-        actor_id=reviewer.identity, action="correct_event", subject_type="event", subject_id=str(event.id),
-        detail={"revision_number": latest + 1, "rationale": body.rationale, "issuer": reviewer.issuer},
+        actor_id=reviewer.identity,
+        action="correct_event",
+        subject_type="event",
+        subject_id=str(event.id),
+        detail={
+            "revision_number": latest_number + 1,
+            "rationale": body.rationale,
+            "issuer": reviewer.issuer,
+            "review_reopened": active_task_id is None,
+        },
     ))
     db.commit()
-    return {"event_id": str(event.id), "revision_number": latest + 1, "status": event.status.value,
-        "message": "Correction recorded; event remains unpublished until re-reviewed and republished."}
+    return {
+        "event_id": str(event.id),
+        "revision_number": latest_number + 1,
+        "status": event.status.value,
+        "verification_status": event.verification_status.value,
+        "review_reopened": active_task_id is None,
+        "message": "Correction recorded as a new immutable revision; the event is unpublished until it is independently re-reviewed and separately republished.",
+    }
 
 
 @router.post("/events/{event_id}/publish", status_code=200)
-def publish_event(event_id: UUID, reviewer: Principal = Depends(require_publisher), db: Session = Depends(get_db)):
+def publish_event(
+    event_id: UUID,
+    reviewer: Principal = Depends(require_publisher),
+    db: Session = Depends(get_db),
+):
     event = db.get(Event, event_id)
     if not event or event.is_synthetic:
         raise HTTPException(status_code=404, detail="Event not found.")
-    if event.verification_status not in {VerificationStatus.verified, VerificationStatus.provisional}:
-        raise HTTPException(status_code=409, detail="Only verified or explicitly provisional events can be published.")
+    if event.status == EventStatus.published:
+        raise HTTPException(status_code=409, detail="Event is already published; create a correction revision before republishing.")
     if event.status == EventStatus.withdrawn:
         raise HTTPException(status_code=409, detail="Withdrawn events cannot be republished through this endpoint.")
+    if event.status not in {EventStatus.pending_review, EventStatus.corrected}:
+        raise HTTPException(status_code=409, detail="Only events in the review workflow can be published.")
+
+    latest_revision = db.scalar(
+        select(EventRevision).where(EventRevision.event_id == event_id)
+        .order_by(EventRevision.revision_number.desc()).limit(1)
+    )
+    if latest_revision is None:
+        raise HTTPException(status_code=409, detail="Publication requires an immutable event revision.")
+
+    open_task_id = db.scalar(
+        select(ReviewTask.id).where(
+            ReviewTask.subject_type == "event",
+            ReviewTask.subject_id == event.id,
+            ReviewTask.status.in_(["pending", "in_review", "needs_more_evidence"]),
+        ).limit(1)
+    )
+    if open_task_id is not None:
+        raise HTTPException(status_code=409, detail="An event review task is still open; complete independent review before publishing.")
+
+    latest_review_row = db.execute(
+        select(ReviewDecision, ReviewTask)
+        .join(ReviewTask, ReviewDecision.task_id == ReviewTask.id)
+        .where(ReviewTask.subject_type == "event", ReviewTask.subject_id == event_id)
+        .order_by(ReviewDecision.created_at.desc(), ReviewDecision.id.desc())
+        .limit(1)
+    ).first()
+    if latest_review_row is None:
+        raise HTTPException(status_code=409, detail="Publication requires an independent review decision.")
+    latest_decision, latest_task = latest_review_row
+    if latest_task.status != "completed" or not is_approval_decision(latest_decision.decision):
+        raise HTTPException(status_code=409, detail="The latest review decision does not approve this event for publication.")
+    try:
+        ensure_review_after_latest_revision(latest_revision.changed_at, latest_decision.created_at)
+        ensure_independent_publisher(
+            latest_revision.changed_by,
+            latest_decision.reviewer_id,
+            reviewer.identity,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    expected_verification = {
+        "verify": VerificationStatus.verified,
+        "accept_provisional": VerificationStatus.provisional,
+    }[latest_decision.decision]
+    if event.verification_status != expected_verification:
+        raise HTTPException(status_code=409, detail="Event verification status does not match the latest review decision.")
+    if event.verification_status not in {VerificationStatus.verified, VerificationStatus.provisional}:
+        raise HTTPException(status_code=409, detail="Only verified or explicitly provisional events can be published.")
+
     eligible_license_statuses = {"approved", "public_domain", "open_license", "licensed"}
     evidence_rows = db.execute(
         select(
@@ -293,12 +407,35 @@ def publish_event(event_id: UUID, reviewer: Principal = Depends(require_publishe
             status_code=409,
             detail="Publication requires an active permitted source and an individually approved source document.",
         )
-    if event.event_type in {"civilian_casualties", "perpetrator_attribution", "mass_casualty", "blockade_violation"} and event.verification_status != VerificationStatus.verified:
+    high_impact_types = {"civilian_casualties", "perpetrator_attribution", "mass_casualty", "blockade_violation"}
+    if event.event_type in high_impact_types and event.verification_status != VerificationStatus.verified:
         raise HTTPException(status_code=409, detail="This high-impact event category requires verified status before publication.")
+
     event.status = EventStatus.published
-    db.add(AuditLog(actor_id=reviewer.identity, action="publish_event", subject_type="event", subject_id=str(event.id),
-                    detail={"verification_status": event.verification_status.value, "evidence_count": evidence_count,
-                            "eligible_evidence_count": eligible_evidence_count, "issuer": reviewer.issuer}))
+    db.add(AuditLog(
+        actor_id=reviewer.identity,
+        action="publish_event",
+        subject_type="event",
+        subject_id=str(event.id),
+        detail={
+            "revision_number": latest_revision.revision_number,
+            "review_decision_id": str(latest_decision.id),
+            "reviewer_id": latest_decision.reviewer_id,
+            "verification_status": event.verification_status.value,
+            "evidence_count": evidence_count,
+            "eligible_evidence_count": eligible_evidence_count,
+            "publisher_id": reviewer.identity,
+            "issuer": reviewer.issuer,
+        },
+    ))
     db.commit()
-    return {"event_id": str(event.id), "status": event.status.value, "verification_status": event.verification_status.value,
-            "evidence_count": evidence_count, "eligible_evidence_count": eligible_evidence_count, "published_by": reviewer.subject}
+    return {
+        "event_id": str(event.id),
+        "status": event.status.value,
+        "verification_status": event.verification_status.value,
+        "revision_number": latest_revision.revision_number,
+        "review_decision_id": str(latest_decision.id),
+        "evidence_count": evidence_count,
+        "eligible_evidence_count": eligible_evidence_count,
+        "published_by": reviewer.subject,
+    }

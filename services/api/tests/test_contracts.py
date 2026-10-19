@@ -11,7 +11,13 @@ from pydantic import ValidationError
 from sqlalchemy.engine import make_url
 
 from app.core.config import Settings, settings
-from app.core.review_policy import apply_review_decision
+from app.core.review_policy import (
+    apply_review_decision,
+    ensure_independent_publisher,
+    ensure_independent_reviewer,
+    ensure_review_after_latest_revision,
+    is_approval_decision,
+)
 from app.core.security import Principal, get_current_principal, require_reviewer, require_publisher
 from app.schemas.events import CorrectionIn, EventOut, ReviewDecisionIn, EventDraftFromDocumentIn
 from app.schemas.sources import SourceCreateIn, SourcePatchIn
@@ -51,6 +57,9 @@ def test_source_activation_requires_explicit_licence_state():
 def test_correction_rejects_invalid_verification_status():
     with pytest.raises(ValidationError):
         CorrectionIn(rationale="Correcting the event after source review.", verification_status="trusted")
+    # Publisher corrections may only reset verification; they cannot self-assert approval.
+    with pytest.raises(ValidationError):
+        CorrectionIn(rationale="Correcting the event after source review.", verification_status="verified")
 
 
 def test_event_out_schema_contract():
@@ -286,3 +295,49 @@ def test_source_approval_requires_audit_rationale():
         terms_review_rationale="Metadata links only; attribution preserved; no body reuse.",
     )
     assert valid.license_status == "approved"
+
+
+
+def test_event_editor_cannot_review_their_latest_revision():
+    with pytest.raises(ValueError, match="cannot review their own"):
+        ensure_independent_reviewer("issuer-a|analyst-1", "issuer-a|analyst-1")
+    ensure_independent_reviewer("issuer-a|analyst-1", "issuer-a|reviewer-2")
+
+
+def test_event_editor_reviewer_and_publisher_must_be_independent():
+    with pytest.raises(ValueError, match="cannot review their own"):
+        ensure_independent_publisher(
+            "issuer-a|analyst-1", "issuer-a|analyst-1", "issuer-a|publisher-3"
+        )
+    with pytest.raises(ValueError, match="cannot publish their own"):
+        ensure_independent_publisher(
+            "issuer-a|analyst-1", "issuer-a|reviewer-2", "issuer-a|analyst-1"
+        )
+    with pytest.raises(ValueError, match="reviewer cannot publish"):
+        ensure_independent_publisher(
+            "issuer-a|analyst-1", "issuer-a|reviewer-2", "issuer-a|reviewer-2"
+        )
+    ensure_independent_publisher(
+        "issuer-a|analyst-1", "issuer-a|reviewer-2", "issuer-a|publisher-3"
+    )
+
+
+def test_publication_requires_a_positive_review_decision():
+    assert is_approval_decision("verify")
+    assert is_approval_decision("accept_provisional")
+    assert not is_approval_decision("request_more_evidence")
+    assert not is_approval_decision("dispute")
+    assert not is_approval_decision("reject")
+
+
+def test_review_must_postdate_latest_immutable_revision():
+    revision_time = datetime(2026, 10, 19, 10, 0, tzinfo=timezone.utc)
+    ensure_review_after_latest_revision(
+        revision_time, datetime(2026, 10, 19, 10, 1, tzinfo=timezone.utc)
+    )
+    with pytest.raises(ValueError, match="after the latest event revision"):
+        ensure_review_after_latest_revision(revision_time, revision_time)
+    with pytest.raises(ValueError, match="after the latest event revision"):
+        ensure_review_after_latest_revision(
+            revision_time, datetime(2026, 10, 19, 9, 59, tzinfo=timezone.utc)
+        )

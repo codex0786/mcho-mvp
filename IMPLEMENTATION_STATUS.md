@@ -6,8 +6,8 @@
 - Public event APIs return only published, non-synthetic records; map endpoints return GeoJSON.
 - OIDC/JWT API access-token validation against configured issuer, audience and JWKS, with asymmetric algorithm allowlist, expiration/issued-at checks, configurable role claim and reviewer/publisher/admin role gates.
 - Browser authentication now uses server-side Authorization Code + PKCE, verified ID-token claims, short-lived HttpOnly access-token cookie scoped to the same-origin API proxy, no bearer token in browser storage, same-origin checks for cookie-authenticated mutations, and cookie clearing on logout/upstream 401.
-- Publication requires a non-synthetic event, allowed review status and at least one source document individually approved and attached to an active source with reviewed terms and a retention policy.
-- Source registration/activation requires explicit use metadata and audit logging. Evidence removal invalidates public events that no longer have qualifying evidence.
+- Publication requires a non-synthetic event, a positive post-revision independent review decision, an independent publisher, no open review task, and at least one source document individually approved and attached to an active source with reviewed terms and a retention policy. The latest editor, reviewer and publisher must be distinct principals for the version published.
+- Source registration/activation requires explicit use metadata and audit logging. Evidence removal invalidates public events that no longer have qualifying evidence. A correction creates a new immutable revision, resets verification, removes the event from public status, and reopens review.
 - Manual ingestion run model, per-source single-active-run constraint, checkpoints, external ID/content-hash deduplication, sanitized error ledger and run metrics.
 - Read-only ReliefWeb API v2 metadata connector: pre-approved app name/country-scope gates, bounded fetch size/page count, totalCount pagination, overlap-window checkpointing, stable metadata normalization, canonical URL validation, review tasks and no article-body storage.
 - Admin-only source registry and manual ingestion controls; analyst/reviewer/publisher/admin source-document review UI; human-authored event-draft path; separate verification and publication actions.
@@ -17,7 +17,7 @@
 
 ## Current validation status
 
-The most recent successful GitHub Actions run on the pre-BFF commit passed API/PostGIS tests, connector tests, frontend typecheck/production build and Docker image builds. The server-side BFF session work is pending its own full CI run; do not treat it as validated until that run completes successfully.
+The server-side BFF session hardening and automated test harness passed GitHub Actions on commit `ed13c060d5693139adf7cb103413d080c03ff696`: API/PostGIS tests, ingestion connector tests, frontend security tests + typecheck/production build, and all Docker image builds. Phase 11 separation-of-duties changes are now being added and must pass their own CI run before being marked validated.
 
 ## Not yet operational
 

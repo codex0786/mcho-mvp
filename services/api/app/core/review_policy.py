@@ -1,8 +1,10 @@
-"""Domain rules for applying a human review decision to an event.
+"""Domain rules for human review and public event publication.
 
-A reviewer decision never publishes by itself. Publication is a separate,
-evidence-gated and audited operation.
+Review decisions never publish by themselves. Publication is a separate,
+evidence-gated, audited action. The latest editor, reviewer and publisher must
+be distinct people for each version that is published.
 """
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -18,6 +20,39 @@ def _enum_or_string(current: Any, value: str) -> Any:
 
 def _value(value: Any) -> str:
     return str(getattr(value, "value", value))
+
+
+def ensure_independent_reviewer(latest_editor_id: str | None, reviewer_id: str) -> None:
+    """A person must not review the version they most recently edited."""
+    if latest_editor_id and latest_editor_id == reviewer_id:
+        raise ValueError("The latest event editor cannot review their own version.")
+
+
+def ensure_independent_publisher(
+    latest_editor_id: str | None,
+    reviewer_id: str,
+    publisher_id: str,
+) -> None:
+    """Require a three-person chain for the exact event version being published."""
+    ensure_independent_reviewer(latest_editor_id, reviewer_id)
+    if publisher_id == latest_editor_id:
+        raise ValueError("The latest event editor cannot publish their own version.")
+    if publisher_id == reviewer_id:
+        raise ValueError("The reviewer cannot publish the same event version they reviewed.")
+
+
+def is_approval_decision(decision: str) -> bool:
+    """Only explicit verify/provisional acceptance decisions can precede publication."""
+    return decision in {"verify", "accept_provisional"}
+
+
+def ensure_review_after_latest_revision(
+    revision_changed_at: datetime,
+    decision_created_at: datetime,
+) -> None:
+    """A review is valid only if it was recorded after the latest immutable revision."""
+    if decision_created_at <= revision_changed_at:
+        raise ValueError("A new independent review is required after the latest event revision.")
 
 
 def apply_review_decision(event: "Event", decision: str) -> "Event":

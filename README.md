@@ -80,6 +80,10 @@ The API requires PostgreSQL/PostGIS for the complete spatial schema. Unit tests 
 
 Reviewer and publisher APIs validate signed OIDC/JWT access tokens, including issuer, audience, expiration, signing key and configured roles. See [OIDC authentication setup](./docs/security-oidc.md). The Render Blueprint does not guess an identity provider; configure its trusted issuer, API audience, JWKS URL and role claim before enabling review operations.
 
+## Phase 11: independent review and publication
+
+The API requires a separate editor, reviewer and publisher for the exact revision being published. Publication additionally requires a positive review decision recorded after the latest immutable revision and no open review tasks. Corrections reset verification and reopen review, and cannot self-assert a verified state. See [independent publication controls](./docs/phase-11-independent-publication.md).
+
 ## Phase 10: browser-session hardening
 
 The analyst sign-in flow uses an HttpOnly, same-origin session cookie rather than exposing access tokens to browser JavaScript. The Next.js server performs the code exchange, verifies the ID token, and injects the access token only when proxying to the API. State-changing requests are checked for same-origin Origin headers. See [BFF session hardening](./docs/phase-10-bff-session.md).

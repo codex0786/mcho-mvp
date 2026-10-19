@@ -1,7 +1,7 @@
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 
 from app.core.config import settings
 from app.db.session import Base
@@ -13,15 +13,26 @@ if config.config_file_name:
 config.set_main_option("sqlalchemy.url", settings.sqlalchemy_url)
 target_metadata = Base.metadata
 
-# Tables owned by the PostGIS extension live in the public schema but are not
-# part of MCHO's model; without this filter `alembic check` would propose
-# dropping them.
-POSTGIS_OWNED_TABLES = frozenset({"spatial_ref_sys"})
+# Extension-owned tables (PostGIS spatial_ref_sys, plus the tiger geocoder and
+# topology tables that some PostGIS images place on the search path) are not
+# part of MCHO's model. Without this filter `alembic check` would propose
+# dropping them. The online path asks PostgreSQL which relations extensions own.
+EXTENSION_OWNED_TABLES: set[str] = {"spatial_ref_sys"}
+EXTENSION_OWNED_TABLES_SQL = text("""
+    SELECT c.relname
+    FROM pg_depend d
+    JOIN pg_class c ON c.oid = d.objid AND d.classid = 'pg_class'::regclass
+    WHERE d.deptype = 'e' AND c.relkind IN ('r', 'p', 'v', 'm')
+""")
 
 
 def include_object(obj, name, type_, reflected, compare_to):
-    if type_ == "table" and reflected and compare_to is None and name in POSTGIS_OWNED_TABLES:
-        return False
+    if not reflected or compare_to is not None:
+        return True
+    if type_ == "table":
+        return name not in EXTENSION_OWNED_TABLES
+    if type_ == "index":
+        return obj.table.name not in EXTENSION_OWNED_TABLES
     return True
 
 
@@ -45,6 +56,10 @@ def run_migrations_online():
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
+        EXTENSION_OWNED_TABLES.update(connection.scalars(EXTENSION_OWNED_TABLES_SQL))
+        # End the autobegun read transaction; otherwise Alembic would treat the
+        # run as externally managed and never commit the migration.
+        connection.commit()
         context.configure(
             connection=connection,
             target_metadata=target_metadata,

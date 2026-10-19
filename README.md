@@ -116,7 +116,9 @@ The analyst sign-in flow uses an HttpOnly, same-origin session cookie rather tha
 
 After a staging deployment, run [`scripts/smoke-test.sh`](./scripts/smoke-test.sh) with `API_URL` and `WEB_URL` set to the host URLs. See [the deployment guide](./docs/deploy-render.md) for provisioning, OIDC and verification steps.
 
-A Render pilot deployment Blueprint is available in [`render.yaml`](./render.yaml). Read [the Render deployment guide](./docs/deploy-render.md) before applying it. Applying the Blueprint creates cloud resources that may incur recurring charges. No services are deployed automatically by this repository commit.
+**Free tier (current setup):** [`render.yaml`](./render.yaml) is a free Render Blueprint for the API only, used with Neon (PostgreSQL/PostGIS), Upstash (Redis) and the existing Vercel frontend. Follow [the free-tier guide](./docs/deploy-free-tier.md); it has no Celery worker or sign-in yet, and the API sleeps when idle.
+
+**Paid pilot:** [`deploy/render-paid-pilot.yaml`](./deploy/render-paid-pilot.yaml) adds a worker, Render Postgres and Key Value. Read [the Render deployment guide](./docs/deploy-render.md) before applying it; it creates resources that incur recurring charges. No services are deployed automatically by a repository commit.
 
 ## Environment variables
 

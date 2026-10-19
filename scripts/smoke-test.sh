@@ -62,6 +62,21 @@ PY
   fi
 }
 
+# Free-tier hosts sleep when idle; WAIT_FOR_API_SECONDS (default 0) gives the API
+# time to wake before the checks run.
+WAIT_FOR_API_SECONDS="${WAIT_FOR_API_SECONDS:-0}"
+if [[ "$WAIT_FOR_API_SECONDS" -gt 0 ]]; then
+  echo "Waiting up to ${WAIT_FOR_API_SECONDS}s for $API_URL to respond..."
+  deadline=$((SECONDS + WAIT_FOR_API_SECONDS))
+  until curl --silent --fail --max-time 20 --output /dev/null "$API_URL/api/v1/health/live"; do
+    if (( SECONDS >= deadline )); then
+      echo "FAIL API did not respond within ${WAIT_FOR_API_SECONDS}s" >&2
+      exit 1
+    fi
+    sleep 5
+  done
+fi
+
 live_file="$(fetch_json "api-live" "$API_URL/api/v1/health/live")"
 check_json "API live" "$live_file" live
 

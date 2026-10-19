@@ -45,7 +45,7 @@ Audit records identify the actor using the pair `issuer|subject`, and record rol
 
 - The public website remains readable without a token.
 - The `/analyst` workspace uses a server-side OIDC Authorization Code + PKCE flow. The Next.js server keeps the PKCE verifier/state/nonce in short-lived HttpOnly cookies, exchanges the authorization code server-side, verifies the ID token signature/issuer/audience/nonce, and stores the short-lived API access token in an HttpOnly, Secure (production), SameSite=Lax cookie scoped to the same-origin backend proxy. Browser JavaScript does not receive the bearer token. The proxy strips browser-supplied Authorization headers, reads the token cookie server-side, and injects the validated session token when forwarding to the API.
-- The Render Blueprint does not invent an issuer, client ID or secret. Configure `OIDC_ISSUER`, `OIDC_AUDIENCE` and `OIDC_JWKS_URL` for `mcho-api`; configure `MCHO_OIDC_AUTHORITY`, `MCHO_OIDC_CLIENT_ID` and optional `MCHO_OIDC_RESOURCE` for `mcho-web`. The expected API audience must match the access token audience and, when used, the requested resource.
+- Neither Render Blueprint (`render.yaml`, `deploy/render-paid-pilot.yaml`) invents an issuer, client ID or secret. Configure `OIDC_ISSUER`, `OIDC_AUDIENCE` and `OIDC_JWKS_URL` for `mcho-api`; configure `MCHO_OIDC_AUTHORITY`, `MCHO_OIDC_CLIENT_ID` and optional `MCHO_OIDC_RESOURCE` for `mcho-web`. The expected API audience must match the access token audience and, when used, the requested resource.
 - Do not configure an HMAC/shared secret as the JWT signing key.
 - Tests use locally generated RSA keys and a mocked JWKS source; staging must additionally be tested against the real provider's JWKS, issuer, audience and role claims.
 

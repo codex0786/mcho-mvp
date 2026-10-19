@@ -1,6 +1,6 @@
 # Render pilot deployment
 
-This repository includes a Render Blueprint at `render.yaml` for the API, frontend, Celery worker, private Key Value queue and PostgreSQL database. The Blueprint is infrastructure-as-code only; no resources are provisioned by a Git commit.
+This guide covers the **paid** pilot Blueprint at `deploy/render-paid-pilot.yaml` (API, frontend, Celery worker, private Key Value queue and PostgreSQL database). For the no-cost setup used today, see [the free-tier guide](./deploy-free-tier.md); the root `render.yaml` is that free Blueprint. The Blueprint is infrastructure-as-code only; no resources are provisioned by a Git commit.
 
 ## Cost and scope
 

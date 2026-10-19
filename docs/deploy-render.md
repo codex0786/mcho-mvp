@@ -1,52 +1,62 @@
 # Render pilot deployment
 
-This repository includes a Render Blueprint at `render.yaml` defining the API, frontend, Celery worker, private Key Value queue and PostgreSQL database. Render Blueprints manage connected services from YAML, and Render Postgres supports PostGIS. See the [Blueprint reference](https://render.com/docs/blueprint-spec) and [Postgres extensions](https://render.com/docs/postgresql-extensions).
+This repository includes a Render Blueprint at `render.yaml` for the API, frontend, Celery worker, private Key Value queue and PostgreSQL database. The Blueprint is infrastructure-as-code only; no resources are provisioned by a Git commit.
 
-## Important: costs and scope
+## Cost and scope
 
-**Review current Render pricing before applying the Blueprint.** Applying it provisions cloud services and may incur recurring charges. The initial configuration is sized for a small pilot, not a load-tested production system. Singapore co-location is the current default; review latency, data handling, provider terms and regional requirements before use.
+**Review current Render pricing, region, plans and persistent-storage settings before applying the Blueprint.** Applying it provisions cloud resources that may incur recurring charges. The current Singapore configuration is a small pilot default, not a load-tested production sizing decision. Review latency, data-handling requirements and provider terms before use.
 
-The Blueprint is not deployed automatically by this commit. It does not provision real provider credentials, enable ingestion or configure production identity. It is infrastructure-as-code for a controlled staging deployment, not proof that the observatory is operational.
+The Blueprint does not configure a real OIDC tenant, activate data sources or enable scheduled polling. Do not describe the observatory as live-data enabled until the identity provider, source-use approval, QA and freshness monitoring are configured and tested.
 
 ## Apply the Blueprint
 
-1. Open Render and choose **New → Blueprint**.
+1. In Render, choose **New → Blueprint**.
 2. Connect `https://github.com/codex0786/mcho-mvp` and select branch `main`.
-3. Review each service, region, plan, database settings and recurring cost before confirming provisioning.
-4. When prompted for `CORS_ORIGINS`, enter the exact HTTPS origin of the new `mcho-web` service, without a trailing slash (for example, `https://mcho-web.onrender.com`). Confirm the actual URL Render assigns.
-5. Render builds the API, worker and frontend Dockerfiles. The API pre-deploy command applies Alembic migrations before the API becomes active; inspect its deploy logs.
-6. Confirm successful deployment of `mcho-api`, `mcho-worker`, `mcho-web`, `mcho-queue` and `mcho-db`.
-7. Set `NEXT_PUBLIC_MAP_STYLE_URL` for `mcho-web` to a permitted MapLibre style JSON URL if you want a basemap. The blank default is intentional.
-8. Open the Render-assigned public URL for `mcho-web`.
+3. Review every service, region, plan and recurring charge before confirming provisioning.
+4. After creation, confirm the API, worker, web service, private Key Value and database all deploy. Inspect the API pre-deploy logs to confirm Alembic migrations completed.
+5. Set `MCHO_MAP_STYLE_URL` on `mcho-web` to a permitted MapLibre style JSON URL if you want a basemap; blank is an intentional no-basemap state.
+6. Configure `MCHO_OIDC_AUTHORITY`, `MCHO_OIDC_CLIENT_ID` and optionally `MCHO_OIDC_RESOURCE` for `mcho-web`. Configure the matching `OIDC_ISSUER`, `OIDC_AUDIENCE`, and `OIDC_JWKS_URL` for `mcho-api`. Register the exact `https://<mcho-web-host>/auth/callback` redirect URL and `https://<mcho-web-host>/analyst` post-logout URL with the identity provider. Require MFA for privileged roles.
+7. Keep `CORS_ORIGINS` blank unless you deliberately need browser clients to call the API directly. The MCHO web application uses a same-origin backend proxy, so it does not depend on browser CORS to reach the API.
+8. Open the Render-assigned `mcho-web` public URL.
 
-The Blueprint wires the API origin into the frontend using Render's `RENDER_EXTERNAL_URL` environment variable. The API's CORS allowlist is entered separately to avoid a circular cross-service dependency. Render documents these fields in its [Blueprint specification](https://render.com/docs/blueprint-spec).
+The frontend proxy uses the `MCHO_API_ORIGIN` value from Render’s `RENDER_EXTERNAL_URL`. It forwards only the authorization/content-type/accept/request-id headers required by the upstream API, strips cookies, uses no-store cache semantics, and restricts upstream selection to the configured server environment variable. Never pass a token in a URL or log a bearer token.
 
 ## Configuration and security
 
-- Managed PostgreSQL URLs using `postgres://` or `postgresql://` are normalized to SQLAlchemy's `postgresql+psycopg://` driver format. The API Dockerfile listens on the platform-provided `PORT`.
-- The Redis-compatible Key Value is configured for internal connections only. Keep queue access private.
-- `NEXT_PUBLIC_*` settings are browser-visible configuration; never put secrets in them.
-- OIDC issuer, API audience, JWKS URL and role claim are intentionally not set in the Blueprint because the organization must choose/configure its identity provider. Set them in the `mcho-api` service environment after configuring the provider; until then, reviewer endpoints return 503.
-- A ReliefWeb metadata connector is included but remains disabled until a pre-approved RELIEFWEB_APPNAME, explicit RELIEFWEB_COUNTRIES, an active source with reviewed terms/retention policy and human-review workflow are configured. It fetches metadata and links only. HDX HAPI, Copernicus, NASA FIRMS and maritime aggregation are not enabled. Never describe the site as live-data enabled until provider terms, QA and freshness monitoring pass.
-- Put real provider credentials only in the hosting dashboard's secret environment settings after checking source terms and least-privilege requirements.
+- Managed PostgreSQL URLs using `postgres://` or `postgresql://` are normalized to the installed SQLAlchemy `postgresql+psycopg://` driver format. The API honors the platform-provided `PORT`.
+- Keep Redis-compatible Key Value and database connections private. The Blueprint uses internal service references for worker/API access.
+- `NEXT_PUBLIC_*` values are browser-visible and must never contain secrets.
+- The OIDC provider and MFA policy are not configured by default. The analyst workspace stays disabled until the web client/authority and API issuer/audience/JWKS are aligned.
+- ReliefWeb metadata ingestion remains disabled until an approved app name, explicit country scope, a reviewed/active source record and a retention policy are configured. The adapter requests metadata/links only, not source article bodies.
+- HDX HAPI, Copernicus, NASA FIRMS and maritime aggregation are not enabled. Do not interpret satellite hot spots as verified attacks or expose tactical vessel tracks.
+- Put source credentials only in the host’s secret environment settings after reviewing source terms and least-privilege access.
 
-## Smoke tests after deployment
+## Smoke tests
 
-Let `API_URL` be the public `mcho-api` URL without a trailing slash:
+After deployment, run the repository smoke test from a machine that can access both public URLs:
+
+```bash
+API_URL="https://<mcho-api-host>" WEB_URL="https://<mcho-web-host>" ./scripts/smoke-test.sh
+```
+
+The script checks live and ready health, database/PostGIS readiness, event JSON shape, GeoJSON map shape, the web homepage, runtime public config and the same-origin API proxy. A passing smoke test proves basic wiring only—it is not evidence that any feed is active or that event records are accurate.
+
+You can also check individual endpoints:
 
 - `GET $API_URL/api/v1/health/live` returns HTTP 200.
 - `GET $API_URL/api/v1/health/ready` returns HTTP 200 and confirms database/PostGIS readiness.
-- `GET $API_URL/api/v1/events` returns a valid empty or published-only page.
+- `GET $API_URL/api/v1/events?page_size=1` returns a valid published-only page.
 - `GET $API_URL/api/v1/map/events?west=30&south=20&east=45&north=40` returns a valid GeoJSON FeatureCollection.
-- The frontend loads without CORS failures and shows an honest empty/no-live-data state until events are approved.
-- Reviewer endpoints fail closed until OIDC settings and access-token roles are configured.
+- `GET $WEB_URL/api/public-config` returns runtime public configuration but no secrets.
+- `GET $WEB_URL/api/backend/api/v1/health/live` verifies the same-origin proxy reaches the API.
 
 ## Rollback and migrations
 
-Use the last successful application deployment for an app rollback. Database migrations need a separate backup/restore plan; do not assume rolling back the app reverses a migration safely. Before production, document backup retention and recovery objectives and perform a restore test.
+Use the last successful application deployment for an application rollback. Database migrations need an independent backup/restore plan; rolling back an app does not necessarily reverse a migration safely. Before production, document backup retention/recovery objectives and conduct a restore test against an isolated database.
 
-## Current limitations
+## Remaining limitations
 
-- Render has not been provisioned by this change.
-- The initial Alembic migration uses metadata-driven table creation. Replace it with explicit migrations and test upgrade/downgrade behavior before production.
-- The OIDC provider and MFA policy are not configured; the analyst UI stays disabled until web and API identity settings are aligned. Source/ingestion endpoints are implemented but no source is approved or active by default. Scheduled ingestion, HDX/Copernicus/NASA/maritime connectors, raster/tile services, alerting, backup automation, and load/security tests are not completed.
+- Render has not been provisioned by this repository change.
+- The original migration still uses metadata-driven schema creation; replace it with explicit production migration operations in a dedicated future step.
+- The actual OIDC provider/MFA policy, roles and client redirect registration are deployment-specific and remain unconfigured.
+- No active source is enabled by default. Scheduled ingestion, HDX/Copernicus/NASA/maritime connectors, raster/tile services, alerting, backup automation, load tests and independent security review remain incomplete.

@@ -74,6 +74,8 @@ Reviewer and publisher APIs validate signed OIDC/JWT access tokens, including is
 
 ## Deployment
 
+After a staging deployment, run [`scripts/smoke-test.sh`](./scripts/smoke-test.sh) with `API_URL` and `WEB_URL` set to the host URLs. See [the deployment guide](./docs/deploy-render.md) for provisioning, OIDC and verification steps.
+
 A Render pilot deployment Blueprint is available in [`render.yaml`](./render.yaml). Read [the Render deployment guide](./docs/deploy-render.md) before applying it. Applying the Blueprint creates cloud resources that may incur recurring charges. No services are deployed automatically by this repository commit.
 
 ## Environment variables

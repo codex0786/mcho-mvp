@@ -26,8 +26,9 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
   try {
     const normalizedOrigin = origin.endsWith("/") ? origin : `${origin}/`;
     target = new URL(`${path.map(encodeURIComponent).join("/")}${request.nextUrl.search}`, normalizedOrigin);
-    if (target.protocol !== "https:" && process.env.NODE_ENV === "production") {
-      return Response.json({ detail: "Backend API origin must use HTTPS in production." }, { status: 503 });
+    const isLocalComposeTarget = target.hostname === "api" && target.port === "8000";
+    if (target.protocol !== "https:" && process.env.NODE_ENV === "production" && !isLocalComposeTarget) {
+      return Response.json({ detail: "Backend API origin must use HTTPS in production (except the internal local-Compose API service)." }, { status: 503 });
     }
   } catch {
     return Response.json({ detail: "Backend API origin is invalid." }, { status: 503 });

@@ -92,7 +92,7 @@ docker compose exec -T api python -m app.seed_demo
 wait_for_url "web prototype" "http://127.0.0.1:3000/demo" web
 
 echo "Running API and same-origin proxy smoke tests..."
-bash scripts/smoke-test.sh
+API_URL="http://127.0.0.1:8000" WEB_URL="http://127.0.0.1:3000" bash scripts/smoke-test.sh
 
 echo ""
 echo "MCHO local stack is ready."

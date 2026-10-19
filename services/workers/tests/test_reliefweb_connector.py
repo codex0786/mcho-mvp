@@ -16,6 +16,7 @@ def sample_row(report_id="12345", title="Situation update"):
             "url": f"https://reliefweb.int/report/sample/{report_id}",
             "date": {
                 "created": "2026-10-18T12:00:00+00:00",
+                "changed": "2026-10-19T01:00:00+00:00",
                 "original": "2026-10-17T08:30:00+00:00",
             },
             "country": [{"name": "Lebanon"}],
@@ -83,6 +84,7 @@ def test_metadata_normalization_preserves_provenance_and_never_stores_body():
     assert normalized["canonical_url"].startswith("https://reliefweb.int/")
     assert normalized["metadata"]["countries"] == ["Lebanon"]
     assert normalized["metadata"]["provider_created_at"].startswith("2026-10-18T12:00:00")
+    assert normalized["metadata"]["provider_changed_at"].startswith("2026-10-19T01:00:00")
     assert "body" not in normalized["metadata"]
     assert "This article body" not in json.dumps(normalized, default=str)
 

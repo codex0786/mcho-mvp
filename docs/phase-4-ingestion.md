@@ -28,7 +28,7 @@
 
 The adapter requires a pre-approved RELIEFWEB_APPNAME and a non-empty RELIEFWEB_COUNTRIES list. Operational limits are bounded: page size defaults to 100 and cannot exceed 100; maximum pages defaults to 3 and cannot exceed 10; initial lookback defaults to 7 days and cannot exceed 30; overlap defaults to 24 hours and cannot exceed 72.
 
-The request explicitly selects title, canonical URL, dates, country, source, language and format metadata; it does not request report body fields. Paging uses the provider's totalCount for whole-query count rather than the count value for one response. Date queries overlap the last committed watermark to tolerate late-arriving reports; external IDs and stable content hashes make the overlap idempotent.
+The request explicitly selects title, canonical URL, created/changed/original dates, country, source, language and format metadata; it does not request report body fields. Incremental scanning filters and sorts by date.changed so revised provider records can be revisited. Paging uses the provider's totalCount for whole-query count rather than the count value for one response. Date queries overlap the last committed watermark to tolerate late-arriving reports; external IDs and stable content hashes make the overlap idempotent.
 
 ## Operational guardrails
 

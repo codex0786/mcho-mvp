@@ -77,14 +77,14 @@ class ReliefWebConnector:
                 "operator": "AND",
                 "conditions": [
                     {"field": "country", "value": list(self.config.countries), "operator": "OR"},
-                    {"field": "date.created", "value": {"from": start.isoformat(), "to": end.isoformat()}},
+                    {"field": "date.changed", "value": {"from": start.isoformat(), "to": end.isoformat()}},
                 ],
             },
             "fields": {"include": [
-                "title", "url", "date.created", "date.original", "source", "country",
+                "title", "url", "date.created", "date.changed", "date.original", "source", "country",
                 "primary_country", "language", "format",
             ]},
-            "sort": ["date.created:asc", "id:asc"],
+            "sort": ["date.changed:asc", "id:asc"],
             "limit": self.config.page_size,
             "offset": offset,
         }

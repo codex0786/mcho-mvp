@@ -68,7 +68,7 @@ jobs:
       - name: Compile worker source
         run: python -m compileall -q mcho_workers tests
       - name: Run no-network connector and normalization tests
-        run: pytest -q tests
+        run: PYTHONPATH=. python -m pytest -q tests
 
   web-build:
     name: Frontend typecheck and production build

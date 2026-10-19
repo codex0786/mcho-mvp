@@ -55,6 +55,7 @@ def normalize_reliefweb_record(row: dict[str, Any], retrieved_at: datetime) -> d
 
     dates = fields.get("date") if isinstance(fields.get("date"), dict) else {}
     created_at = _parse_datetime(dates.get("created"))
+    changed_at = _parse_datetime(dates.get("changed")) or created_at
     published_at = _parse_datetime(dates.get("original")) or created_at
     metadata = {
         "provider": "reliefweb",
@@ -62,6 +63,7 @@ def normalize_reliefweb_record(row: dict[str, Any], retrieved_at: datetime) -> d
         "title": title.strip(),
         "url": canonical_url,
         "provider_created_at": created_at.isoformat() if created_at else None,
+        "provider_changed_at": changed_at.isoformat() if changed_at else None,
         "published_at": published_at.isoformat() if published_at else None,
         "countries": sorted(set(_names(fields.get("country")))),
         "primary_countries": sorted(set(_names(fields.get("primary_country")))),

@@ -276,7 +276,7 @@ def test_reliefweb_api_configuration_is_disabled_when_provider_settings_missing(
 def test_source_approval_requires_audit_rationale():
     with pytest.raises(ValidationError, match="review rationale"):
         SourcePatchIn(license_status="approved")
-    with pytest.raises(ValidationError, match="review rationale"):
+    with pytest.raises(ValidationError, match="at least 20 characters"):
         SourcePatchIn(
             license_status="approved",
             terms_review_rationale="Terms checked.",

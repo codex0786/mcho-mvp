@@ -45,7 +45,7 @@ Register exactly `https://your-web-host/api/auth/callback` at the identity provi
 4. Exercise success and failure cases: missing/changed state, provider error, invalid nonce, wrong ID-token issuer/audience/signature, token endpoint outage, API 401, missing role and logout.
 5. In browser devtools, confirm there is no access token in local/session storage, local JavaScript state or response JSON. The access cookie must be HttpOnly and Path=/api/backend.
 6. Confirm cross-origin POST/PATCH requests are rejected while a same-origin analyst/reviewer/publisher request succeeds when the API role permits it.
-7. Run `npm run typecheck`, `npm run build` and the full GitHub Actions workflow. The actual provider handshake must be tested in staging; build green alone does not prove configuration correctness.
+7. Run `npm run test:auth`, `npm run typecheck`, `npm run build` and the full GitHub Actions workflow. The automated tests use a local mock OIDC issuer to validate PKCE, state/nonce, token exchange, cookie attributes, proxy credential injection and cross-origin mutation rejection. The actual provider handshake must still be tested in staging; build green alone does not prove provider configuration correctness.
 
 ## Limits
 

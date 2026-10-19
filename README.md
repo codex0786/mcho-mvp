@@ -20,6 +20,10 @@ An evidence-first geospatial observatory starter. It is designed to connect date
 - Next.js + TypeScript + MapLibre GL JS
 - Docker Compose for local development
 
+## Phase 6: reviewer queue and separate publication
+
+The `/analyst` workspace now includes the OIDC-protected review queue. Reviewers/admins can record a reasoned decision on source documents or event claims. Publishers/admins can use a separate publish action on eligible completed event tasks; the API always re-checks evidence and high-impact rules. See [review queue API details](./docs/api.md).
+
 ## Phase 5: human-authored event drafts
 
 The API now allows an analyst/reviewer/admin to create an unpublished event draft from an individually approved source document. It records the report as a claim, links the document as evidence, creates revision 1 and a review task, and leaves verification/publication separate. See [the analyst workflow](./docs/phase-5-analyst-workflow.md). The `/analyst` browser workspace supports OIDC Authorization Code + PKCE, source-document inspection, and role-gated draft creation. It stays disabled until the organization configures an identity provider, registered redirects and matching API token validation settings.

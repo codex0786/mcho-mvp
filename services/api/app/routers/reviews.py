@@ -26,11 +26,47 @@ def list_tasks(
         select(ReviewTask).where(ReviewTask.status == status)
         .order_by(ReviewTask.created_at.asc()).limit(200)
     ).all()
-    return {"items": [
-        {"id": str(x.id), "subject_type": x.subject_type, "subject_id": str(x.subject_id),
-         "status": x.status, "priority": x.priority, "created_at": x.created_at.isoformat()}
-        for x in rows
-    ]}
+    event_ids = [task.subject_id for task in rows if task.subject_type == "event"]
+    document_ids = [task.subject_id for task in rows if task.subject_type == "source_document"]
+    events_by_id = {
+        item.id: item for item in db.scalars(select(Event).where(Event.id.in_(event_ids))).all()
+    } if event_ids else {}
+    documents_by_id = {}
+    if document_ids:
+        document_rows = db.execute(
+            select(SourceDocument, Source.name)
+            .join(Source, SourceDocument.source_id == Source.id)
+            .where(SourceDocument.id.in_(document_ids))
+        ).all()
+        documents_by_id = {document.id: (document, source_name) for document, source_name in document_rows}
+
+    items = []
+    for task in rows:
+        item = {
+            "id": str(task.id), "subject_type": task.subject_type, "subject_id": str(task.subject_id),
+            "status": task.status, "priority": task.priority, "created_at": task.created_at.isoformat(),
+            "subject_title": None, "canonical_url": None, "source_name": None,
+            "event_type": None, "event_status": None, "verification_status": None,
+            "country_code": None, "document_review_status": None, "event_summary": None,
+        }
+        if task.subject_type == "event":
+            event = events_by_id.get(task.subject_id)
+            if event:
+                item.update({
+                    "subject_title": event.summary, "event_summary": event.summary,
+                    "event_type": event.event_type, "event_status": event.status.value,
+                    "verification_status": event.verification_status.value, "country_code": event.country_code,
+                })
+        elif task.subject_type == "source_document":
+            pair = documents_by_id.get(task.subject_id)
+            if pair:
+                document, source_name = pair
+                item.update({
+                    "subject_title": document.title, "canonical_url": document.canonical_url,
+                    "source_name": source_name, "document_review_status": document.review_status,
+                })
+        items.append(item)
+    return {"items": items, "count": len(items), "limit": 200}
 
 
 @router.post("/tasks/{task_id}/decisions", status_code=201)

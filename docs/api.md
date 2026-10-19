@@ -16,6 +16,7 @@ OpenAPI docs are served at `/docs`.
 - `GET /api/v1/humanitarian/indicators`
 - `GET /api/v1/reviews/tasks` (reviewer/publisher/admin OIDC role)
 - `POST /api/v1/reviews/tasks/{task_id}/decisions` (reviewer/admin OIDC role)
+- `GET /api/v1/reviews/tasks?status=pending` (reviewer/publisher/admin OIDC role; includes subject summary and source context)
 - `POST /api/v1/events/{event_id}/corrections` (publisher/admin OIDC role)
 - `POST /api/v1/events/{event_id}/publish` (publisher/admin OIDC role; requires reviewed linked evidence and eligible verification status)
 
@@ -28,3 +29,6 @@ Source reports are metadata-only records and are not automatically treated as fa
 
 
 The browser analyst workspace is available at `/analyst` when OIDC browser configuration has been supplied to the web service. The access token is validated again by the API and role checks remain server-enforced.
+
+
+The analyst workspace includes a role-gated review queue. Reviewer/admin users can record a rationale and decide source-document/event tasks; this changes review state only. Publisher/admin users see a separate publish action only for completed event tasks with verified/provisional status. The server always rechecks the publication evidence and high-impact gates.

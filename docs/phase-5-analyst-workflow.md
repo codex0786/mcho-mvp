@@ -38,3 +38,10 @@ The `/analyst` page now includes:
 - Role-aware draft controls; the API independently enforces roles and source/document eligibility.
 
 The browser workspace is intentionally disabled until the real OIDC authority, client ID/resource, API issuer/audience/JWKS and exact redirect URLs are configured. It does not accept pasted tokens. A full reviewer decision UI and a server-side HttpOnly-cookie BFF session remain follow-up hardening items.
+
+
+## Reviewer queue and separate publication
+
+The analyst console exposes `GET /api/v1/reviews/tasks?status=...` for reviewer/publisher/admin roles. Each task includes a human-readable event or source-document title, canonical source URL where applicable, event status and verification state. Reviewer/admin roles may save one of the allowed review decisions with a required rationale. This cannot publish an event.
+
+Completed event tasks with eligible verification state can be shown to publisher/admin roles through the completed-task filter. The explicit **Publish separately** action calls the publisher-protected publication endpoint; the API rechecks evidence, source use terms, document approval and high-impact verification rules. UI visibility is not an authorization boundary.

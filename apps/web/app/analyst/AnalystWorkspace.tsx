@@ -37,6 +37,26 @@ type SourceDocument = {
   external_ids: string[];
 };
 
+type ReviewTaskStatus = "pending" | "in_review" | "needs_more_evidence" | "completed" | "cancelled";
+type ReviewDecision = "verify" | "accept_provisional" | "dispute" | "reject" | "request_more_evidence";
+type ReviewTask = {
+  id: string;
+  subject_type: "event" | "source_document";
+  subject_id: string;
+  status: ReviewTaskStatus;
+  priority: string;
+  created_at: string;
+  subject_title: string | null;
+  canonical_url: string | null;
+  source_name: string | null;
+  event_type: string | null;
+  event_status: string | null;
+  verification_status: string | null;
+  country_code: string | null;
+  document_review_status: string | null;
+  event_summary: string | null;
+};
+
 type DraftForm = {
   event_type: EventType;
   summary: string;
@@ -97,6 +117,12 @@ export default function AnalystWorkspace() {
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [documents, setDocuments] = useState<SourceDocument[]>([]);
   const [documentStatus, setDocumentStatus] = useState<DocumentStatus>("approved");
+  const [reviewTasks, setReviewTasks] = useState<ReviewTask[]>([]);
+  const [reviewTaskStatus, setReviewTaskStatus] = useState<ReviewTaskStatus>("pending");
+  const [loadingReviewTasks, setLoadingReviewTasks] = useState(false);
+  const [reviewRationales, setReviewRationales] = useState<Record<string, string>>({});
+  const [reviewingTaskId, setReviewingTaskId] = useState<string | null>(null);
+  const [publishingEventId, setPublishingEventId] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const [callbackUrl, setCallbackUrl] = useState("/auth/callback");
   const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
@@ -108,6 +134,9 @@ export default function AnalystWorkspace() {
 
   const roles = principal?.roles ?? [];
   const canDraft = roles.some((role) => ["analyst", "reviewer", "admin"].includes(role));
+  const canReview = roles.some((role) => ["reviewer", "admin"].includes(role));
+  const canPublish = roles.some((role) => ["publisher", "admin"].includes(role));
+  const canAccessReviewQueue = roles.some((role) => ["reviewer", "publisher", "admin"].includes(role));
 
   useEffect(() => {
     setCallbackUrl(`${window.location.origin}/auth/callback`);
@@ -148,11 +177,13 @@ export default function AnalystWorkspace() {
     if (!manager || !accessToken) {
       setPrincipal(null);
       setDocuments([]);
+      setReviewTasks([]);
       return;
     }
     let active = true;
     async function loadWorkspace() {
       setLoadingDocs(true);
+      setLoadingReviewTasks(true);
       setError(null);
       try {
         const who = await apiRequest<ApiPrincipal>("/auth/me", accessToken);
@@ -160,6 +191,7 @@ export default function AnalystWorkspace() {
         setPrincipal(who);
         if (!who.roles.some((role) => ["analyst", "reviewer", "publisher", "admin"].includes(role))) {
           setDocuments([]);
+          setReviewTasks([]);
           setError("Your access token is valid but has no role permitted to inspect source documents.");
           return;
         }
@@ -168,22 +200,37 @@ export default function AnalystWorkspace() {
           accessToken,
         );
         if (active) setDocuments(page.items);
+
+        const roleCanOpenQueue = who.roles.some((role) => ["reviewer", "publisher", "admin"].includes(role));
+        if (roleCanOpenQueue) {
+          const tasks = await apiRequest<{ items: ReviewTask[] }>(
+            `/reviews/tasks?status=${encodeURIComponent(reviewTaskStatus)}`,
+            accessToken,
+          );
+          if (active) setReviewTasks(tasks.items);
+        } else if (active) {
+          setReviewTasks([]);
+        }
       } catch (cause) {
         if (!active) return;
         setDocuments([]);
+        setReviewTasks([]);
         setPrincipal(null);
-        setError(cause instanceof Error ? cause.message : "Unable to load authenticated source documents.");
-        if (cause instanceof Error && cause.message.includes("Sign in again.")) {
+        setError(cause instanceof Error ? cause.message : "Unable to load authenticated workspace data.");
+        if (cause instanceof Error && cause.message.includes("expired")) {
           await manager?.removeUser();
           setUser(null);
         }
       } finally {
-        if (active) setLoadingDocs(false);
+        if (active) {
+          setLoadingDocs(false);
+          setLoadingReviewTasks(false);
+        }
       }
     }
     void loadWorkspace();
     return () => { active = false; };
-  }, [manager, accessToken, documentStatus, refreshTick]);
+  }, [manager, accessToken, documentStatus, reviewTaskStatus, refreshTick]);
 
   const sourceCounts = useMemo(() => ({
     loaded: documents.length,
@@ -269,6 +316,71 @@ export default function AnalystWorkspace() {
       setSubmitting(false);
     }
   }, [accessToken, canDraft, draft]);
+
+  const submitReviewDecision = useCallback(async (task: ReviewTask, decision: ReviewDecision) => {
+    if (!canReview || !accessToken) {
+      setError("Your role does not allow review decisions.");
+      return;
+    }
+    const rationale = (reviewRationales[task.id] ?? "").trim();
+    if (rationale.length < 10) {
+      setError("Enter a review rationale of at least 10 characters before recording a decision.");
+      return;
+    }
+    setReviewingTaskId(task.id);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await apiRequest<{
+        task_status: string;
+        event_status: string | null;
+        verification_status: string | null;
+        source_document_review_status: string | null;
+        published: boolean;
+      }>(`/reviews/tasks/${encodeURIComponent(task.id)}/decisions`, accessToken, {
+        method: "POST",
+        body: JSON.stringify({ decision, rationale }),
+      });
+      const state = result.source_document_review_status
+        ? `source document is now ${result.source_document_review_status}`
+        : `event is now ${result.event_status ?? "pending review"} / ${result.verification_status ?? "unverified"}`;
+      setMessage(`Review saved: ${state}. Publication was not triggered.`);
+      setReviewRationales((current) => ({ ...current, [task.id]: "" }));
+      setRefreshTick((value) => value + 1);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Review decision could not be saved.");
+    } finally {
+      setReviewingTaskId(null);
+    }
+  }, [accessToken, canReview, reviewRationales]);
+
+  const publishEvent = useCallback(async (task: ReviewTask) => {
+    if (!canPublish || !accessToken || task.subject_type !== "event") {
+      setError("Your role does not allow publication.");
+      return;
+    }
+    if (!["verified", "provisional"].includes(task.verification_status ?? "")) {
+      setError("This event has not received an eligible review status.");
+      return;
+    }
+    setPublishingEventId(task.subject_id);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await apiRequest<{ status: string; verification_status: string }>(
+        `/events/${encodeURIComponent(task.subject_id)}/publish`,
+        accessToken,
+        { method: "POST" },
+      );
+      setMessage(`Publication action accepted by API: event ${task.subject_id} is ${result.status} / ${result.verification_status}. Check evidence and audit record before relying on it.`);
+      setReviewTaskStatus("completed");
+      setRefreshTick((value) => value + 1);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Publication failed the API gates.");
+    } finally {
+      setPublishingEventId(null);
+    }
+  }, [accessToken, canPublish]);
 
   if (booting) {
     return <main className="shell workspace-shell"><section className="workspace-card"><p>Loading deployment configuration…</p></section></main>;
@@ -445,6 +557,105 @@ export default function AnalystWorkspace() {
               <p className="muted">No source article body is copied into this workspace. If a source is stale, unavailable, disputed or outside permitted terms, do not use it as publication evidence.</p>
             </aside>
           </div>
+
+          {(canReview || canPublish) && (
+            <section className="workspace-card review-queue-card">
+              <div className="section-heading">
+                <h2>Review queue &amp; publication</h2>
+                <span>{loadingReviewTasks ? "Loading tasks…" : `${reviewTasks.length} task(s) in this view`}</span>
+              </div>
+              <div className="workspace-toolbar">
+                <label>Task state
+                  <select value={reviewTaskStatus} onChange={(event) => setReviewTaskStatus(event.target.value as ReviewTaskStatus)}>
+                    <option value="pending">Pending</option>
+                    <option value="in_review">In review</option>
+                    <option value="needs_more_evidence">Needs more evidence</option>
+                    <option value="completed">Completed / ready for publication check</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </label>
+                <button className="secondary-button" type="button" disabled={loadingReviewTasks} onClick={() => setRefreshTick((value) => value + 1)}>Refresh queue</button>
+              </div>
+              {loadingReviewTasks ? (
+                <p className="muted">Loading review tasks…</p>
+              ) : reviewTasks.length === 0 ? (
+                <div className="empty">No tasks in this state. An empty queue does not imply there are no reports or events.</div>
+              ) : (
+                <div className="document-list">
+                  {reviewTasks.map((task) => (
+                    <article className="document-row" key={task.id}>
+                      <div className="document-row-head">
+                        <span className={`review-pill review-${task.status}`}>{task.status.replaceAll("_", " ")}</span>
+                        <span className="review-pill">{task.subject_type.replaceAll("_", " ")}</span>
+                        <span className="muted">Priority: {task.priority}</span>
+                      </div>
+                      <h3>{task.subject_title ?? `Missing ${task.subject_type} record`}</h3>
+                      <p className="muted">
+                        Created: {safeDate(task.created_at)} · {task.event_type ? `Type: ${task.event_type} · ` : ""}
+                        {task.country_code ? `Country: ${task.country_code} · ` : ""}
+                        {task.event_status ? `Event: ${task.event_status} · ` : ""}
+                        {task.verification_status ? `Verification: ${task.verification_status}` : ""}
+                      </p>
+                      {task.source_name && <p className="document-countries">Source: {task.source_name}</p>}
+                      {task.canonical_url && (
+                        <p><a className="text-link" href={task.canonical_url} target="_blank" rel="noopener noreferrer">Open canonical source ↗</a></p>
+                      )}
+                      {canReview && ["pending", "in_review", "needs_more_evidence"].includes(task.status) && (
+                        <div className="draft-form">
+                          <label>Reason for review decision
+                            <textarea
+                              minLength={10}
+                              maxLength={5000}
+                              rows={2}
+                              required
+                              value={reviewRationales[task.id] ?? ""}
+                              onChange={(event) => setReviewRationales((current) => ({ ...current, [task.id]: event.target.value }))}
+                              placeholder="State what the source supports, what remains uncertain, and why this disposition is appropriate."
+                            />
+                          </label>
+                          <div className="document-actions">
+                            {([
+                              ["verify", task.subject_type === "source_document" ? "Approve source document" : "Verify event claim"],
+                              ["accept_provisional", "Accept provisionally"],
+                              ["request_more_evidence", "Request more evidence"],
+                              ["dispute", "Dispute"],
+                              ["reject", "Reject"],
+                            ] as const).map(([decision, label]) => (
+                              <button
+                                key={decision}
+                                className={decision === "verify" ? "primary-button" : "secondary-button"}
+                                type="button"
+                                disabled={reviewingTaskId === task.id}
+                                onClick={() => void submitReviewDecision(task, decision)}
+                              >
+                                {reviewingTaskId === task.id ? "Saving…" : label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {canPublish && task.subject_type === "event" && task.status === "completed"
+                        && ["verified", "provisional"].includes(task.verification_status ?? "")
+                        && task.event_status !== "withdrawn"
+                        && task.event_status !== "published" && (
+                          <div className="document-actions publish-actions">
+                            <button
+                              className="primary-button"
+                              type="button"
+                              disabled={publishingEventId === task.subject_id}
+                              onClick={() => void publishEvent(task)}
+                            >
+                              {publishingEventId === task.subject_id ? "Checking gates…" : "Publish separately"}
+                            </button>
+                            <span className="muted">The API re-checks evidence eligibility and verification policy before publishing.</span>
+                          </div>
+                        )}
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
         </>
       )}
       <footer>Analyst tools are gated by API-verified OIDC roles. Data shown here is source metadata and analyst-authored drafts; publication remains a separate audited action.</footer>

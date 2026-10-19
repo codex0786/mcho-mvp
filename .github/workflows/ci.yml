@@ -50,6 +50,10 @@ jobs:
         run: python -m compileall -q app alembic tests
       - name: Apply migrations on PostGIS
         run: alembic upgrade head
+      - name: Fail if models and migrations have drifted
+        run: alembic check
+      - name: Verify migrations downgrade to base and re-apply cleanly
+        run: alembic downgrade base && alembic upgrade head && alembic check
       - name: Run contract and policy tests
         run: pytest -q
 

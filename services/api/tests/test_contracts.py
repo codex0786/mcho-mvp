@@ -341,3 +341,35 @@ def test_review_must_postdate_latest_immutable_revision():
         ensure_review_after_latest_revision(
             revision_time, datetime(2026, 10, 19, 9, 59, tzinfo=timezone.utc)
         )
+
+
+OBSERVATION_PATHS = (
+    "/api/v1/imagery/scenes",
+    "/api/v1/maritime/aggregates",
+    "/api/v1/humanitarian/indicators",
+)
+
+
+@pytest.mark.parametrize("path", OBSERVATION_PATHS)
+def test_observation_endpoints_fail_closed_without_oidc(monkeypatch, path):
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    monkeypatch.setattr(settings, "oidc_issuer", "")
+    monkeypatch.setattr(settings, "oidc_audience", "")
+    monkeypatch.setattr(settings, "oidc_jwks_url", "")
+    assert TestClient(app).get(path).status_code == 503
+
+
+@pytest.mark.parametrize("path", OBSERVATION_PATHS)
+def test_observation_endpoints_require_staff_role(path):
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    app.dependency_overrides[get_current_principal] = lambda: Principal(
+        subject="visitor-1", issuer="https://issuer.example.test/", roles=frozenset({"viewer"}),
+    )
+    try:
+        assert TestClient(app).get(path).status_code == 403
+    finally:
+        app.dependency_overrides.clear()

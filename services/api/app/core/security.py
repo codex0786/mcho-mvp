@@ -162,3 +162,7 @@ def require_roles(*allowed_roles: str):
 require_reviewer = require_roles("reviewer", "admin")
 require_review_queue_access = require_roles("reviewer", "publisher", "admin")
 require_publisher = require_roles("publisher", "admin")
+# Observation tables (imagery, maritime, humanitarian) have no publication or
+# synthetic-data gate yet, so they are restricted to authenticated staff roles
+# until one exists. See docs/current-state-assessment.md.
+require_observation_access = require_roles("analyst", "reviewer", "publisher", "admin")

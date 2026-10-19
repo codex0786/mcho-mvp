@@ -93,6 +93,19 @@ jobs:
         env:
           NEXT_PUBLIC_API_BASE_URL: https://api.example.invalid/api/v1
           NEXT_PUBLIC_MAP_STYLE_URL: ""
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run demo browser acceptance tests
+        run: npm run test:e2e
+      - name: Upload browser test diagnostics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcho-demo-playwright-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/playwright/
+          retention-days: 14
 
   container-builds:
     name: Docker image builds

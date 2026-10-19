@@ -21,9 +21,9 @@ Phase 4 implementation is being validated via GitHub Actions on the latest commi
 ## Not yet operational
 
 - No cloud services have been provisioned; no live public URL exists from this repository.
-- OIDC provider/tenant, MFA policy, real roles and browser login token handling are not configured.
+- OIDC provider/tenant and MFA policy are not configured. The `/analyst` browser workspace supports Authorization Code + PKCE, source-document inspection and role-gated draft creation, but remains disabled until the authority/client/resource and matching API issuer/audience/JWKS settings are supplied.
 - ReliefWeb app name, country scope and source terms are not configured; no live feed is enabled. Other HDX HAPI, Copernicus, NASA FIRMS and licensed maritime integrations remain future work/guards.
-- Ingestion-created source documents are review candidates, not event claims. The API now supports manual draft creation/linking from approved documents; the full analyst workbench and browser OIDC login/session are still needed for end-to-end workflows.
+- Ingestion-created source documents are review candidates, not event claims. The API and `/analyst` workspace support manual draft creation/linking from approved documents. A reviewer decision UI, provider configuration and hardened cookie-based BFF session are follow-ups.
 - Automated schedules, provider freshness alerts, production backups/restore testing, object storage, satellite raster processing/change analysis, maritime aggregation, observability dashboards, load tests and security assessment remain incomplete.
 - The first migration uses metadata-driven schema creation. Replace that legacy initial migration with explicit production-safe operations in a dedicated future migration before production use.
 

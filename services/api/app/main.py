@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.routers import events, health, ingestion, observations, reviews, sources
+from app.routers import auth, events, health, ingestion, observations, reviews, sources
 
 app = FastAPI(
     title="MCHO API",
@@ -17,6 +17,7 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization"],
 )
 app.include_router(health.router, prefix="/api/v1")
+app.include_router(auth.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")
 app.include_router(observations.router, prefix="/api/v1")
 app.include_router(reviews.router, prefix="/api/v1")

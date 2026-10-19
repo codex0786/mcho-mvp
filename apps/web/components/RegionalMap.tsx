@@ -6,7 +6,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 type EventFeature = { type: "Feature"; id: string; geometry: GeoJSON.Geometry; properties: Record<string, unknown> };
 type EventCollection = { type: "FeatureCollection"; features: EventFeature[]; response_generated_at?: string };
-const API = process.env.NEXT_PUBLIC_API_BASE_URL || "/api/backend/api/v1";
+const API = process.env.NEXT_PUBLIC_API_BASE_URL ||
+  (process.env.NODE_ENV === "development" ? "http://localhost:8000/api/v1" : "/api/backend/api/v1");
 const STYLE = process.env.NEXT_PUBLIC_MAP_STYLE_URL || "";
 
 export default function RegionalMap() {
@@ -16,37 +17,80 @@ export default function RegionalMap() {
   const [events, setEvents] = useState<EventFeature[]>([]);
 
   useEffect(() => {
-    if (!container.current) return;
-    if (!STYLE) {
-      setStatus("No basemap style configured. Set NEXT_PUBLIC_MAP_STYLE_URL to a permitted MapLibre style URL.");
-      return;
+    let cancelled = false;
+    let instance: MapLibreMap | null = null;
+    let refreshButton: HTMLElement | null = null;
+    let handler: (() => void) | null = null;
+
+    async function initialize() {
+      let styleUrl = STYLE;
+      if (!styleUrl) {
+        try {
+          const configResponse = await fetch("/api/public-config", { cache: "no-store" });
+          if (configResponse.ok) {
+            const runtime = await configResponse.json() as { mapStyleUrl?: unknown };
+            if (typeof runtime.mapStyleUrl === "string") styleUrl = runtime.mapStyleUrl.trim();
+          }
+        } catch {
+          // Continue to an explicit no-style state rather than guessing a basemap.
+        }
+      }
+      if (cancelled || !container.current) return;
+      if (!styleUrl) {
+        setStatus("No basemap style configured. Set MCHO_MAP_STYLE_URL on the web service to a permitted MapLibre style URL.");
+        return;
+      }
+
+      instance = new maplibregl.Map({
+        container: container.current,
+        style: styleUrl,
+        center: [39, 27],
+        zoom: 3.2,
+      });
+      instance.addControl(new maplibregl.NavigationControl(), "top-right");
+      instance.on("load", () => {
+        if (!instance || cancelled) return;
+        instance.addSource("events", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+          cluster: true,
+          clusterRadius: 45,
+        });
+        instance.addLayer({
+          id: "event-clusters", type: "circle", source: "events",
+          filter: ["has", "point_count"],
+          paint: { "circle-radius": ["step", ["get", "point_count"], 16, 10, 21, 30, 27], "circle-opacity": 0.75 },
+        });
+        instance.addLayer({
+          id: "event-points", type: "circle", source: "events",
+          filter: ["!", ["has", "point_count"]],
+          paint: { "circle-radius": 7, "circle-stroke-width": 1.5 },
+        });
+        setStatus("Map loaded. Loading published event records…");
+        void refresh(instance);
+      });
+      instance.on("click", "event-points", (e) => {
+        const feature = e.features?.[0];
+        if (!feature) return;
+        const props = feature.properties || {};
+        new maplibregl.Popup().setLngLat(e.lngLat).setHTML(
+          `<strong>${escapeHtml(String(props.event_type || "Event"))}</strong><br/>Status: ${escapeHtml(String(props.verification_status || "unknown"))}<br/>${escapeHtml(String(props.event_start || "Time not provided"))}`,
+        ).addTo(instance!);
+      });
+      map.current = instance;
+      refreshButton = document.getElementById("refresh");
+      handler = () => { if (instance) void refresh(instance); };
+      refreshButton?.addEventListener("click", handler);
     }
-    const instance = new maplibregl.Map({
-      container: container.current,
-      style: STYLE,
-      center: [39, 27],
-      zoom: 3.2,
-    });
-    instance.addControl(new maplibregl.NavigationControl(), "top-right");
-    instance.on("load", () => {
-      instance.addSource("events", { type: "geojson", data: { type: "FeatureCollection", features: [] }, cluster: true, clusterRadius: 45 });
-      instance.addLayer({ id: "event-clusters", type: "circle", source: "events", filter: ["has", "point_count"], paint: { "circle-radius": ["step", ["get", "point_count"], 16, 10, 21, 30, 27], "circle-opacity": 0.75 } });
-      instance.addLayer({ id: "event-points", type: "circle", source: "events", filter: ["!", ["has", "point_count"]], paint: { "circle-radius": 7, "circle-stroke-width": 1.5 } });
-      setStatus("Map loaded. Loading published event records…");
-      void refresh(instance);
-    });
-    instance.on("click", "event-points", (e) => {
-      const feature = e.features?.[0];
-      if (!feature) return;
-      const props = feature.properties || {};
-      new maplibregl.Popup().setLngLat(e.lngLat).setHTML(`<strong>${escapeHtml(String(props.event_type || "Event"))}</strong><br/>Status: ${escapeHtml(String(props.verification_status || "unknown"))}<br/>${escapeHtml(String(props.event_start || "Time not provided"))}`).addTo(instance);
-    });
-    map.current = instance;
-    const refreshButton = document.getElementById("refresh");
-    const handler = () => void refresh(instance);
-    refreshButton?.addEventListener("click", handler);
-    return () => { refreshButton?.removeEventListener("click", handler); instance.remove(); map.current = null; };
-    // Map initialization intentionally runs once per configured style.
+
+    void initialize();
+    return () => {
+      cancelled = true;
+      if (refreshButton && handler) refreshButton.removeEventListener("click", handler);
+      instance?.remove();
+      map.current = null;
+    };
+    // Map initialization intentionally runs once; the style is resolved at runtime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

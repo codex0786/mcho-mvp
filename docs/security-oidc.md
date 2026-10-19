@@ -44,8 +44,8 @@ Audit records identify the actor using the pair `issuer|subject`, and record rol
 ## Current boundaries
 
 - The public website remains readable without a token.
-- There is no reviewer login screen or analyst workspace yet; these are a separate frontend implementation step.
-- The Render Blueprint deliberately does not invent an issuer, client or secret. Add the three trusted OIDC values directly to the `mcho-api` environment after selecting the provider.
+- The `/analyst` workspace uses the generic OIDC Authorization Code + PKCE flow. It fetches public runtime configuration, stores the OIDC user in `sessionStorage`, validates the token with `GET /api/v1/auth/me`, and sends access tokens only through the same-origin Next.js backend proxy. The browser UI remains disabled until client/authority settings are supplied.
+- The Render Blueprint does not invent an issuer, client ID or secret. Configure `OIDC_ISSUER`, `OIDC_AUDIENCE` and `OIDC_JWKS_URL` for `mcho-api`; configure `MCHO_OIDC_AUTHORITY`, `MCHO_OIDC_CLIENT_ID` and optional `MCHO_OIDC_RESOURCE` for `mcho-web`. The expected API audience must match the access token audience and, when used, the requested resource.
 - Do not configure an HMAC/shared secret as the JWT signing key.
 - Tests use locally generated RSA keys and a mocked JWKS source; staging must additionally be tested against the real provider's JWKS, issuer, audience and role claims.
 
@@ -58,4 +58,20 @@ Audit records identify the actor using the pair `issuer|subject`, and record rol
 - [ ] Reviewer and publisher actions are attributable and audited.
 - [ ] Provider outage behavior and signing-key rotation are tested.
 - [ ] Account removal/role revocation behavior is documented.
-- [ ] Frontend login/token handling is implemented before exposing a review workspace.
+- [ ] Register the exact `https://your-web-host/auth/callback` redirect URI and `https://your-web-host/analyst` post-logout URI at the provider.
+- [ ] Production Content-Security-Policy, XSS prevention, browser security testing and token-expiration behavior are validated.
+- [ ] Consider a server-side, HttpOnly-cookie BFF session before storing high-privilege access tokens in a JavaScript-accessible SPA store.
+
+
+## Browser flow and deployment settings
+
+The analyst page creates a browser-only `oidc-client-ts` user manager using Authorization Code + PKCE, with no embedded client secret. It uses a session-scoped web-storage store and disables automatic silent renewal; users must sign in again when the access token expires. Session storage is still JavaScript-accessible, so it is not a substitute for XSS protection. A hardened production deployment should configure a strict Content-Security-Policy, avoid untrusted HTML/third-party scripts, and consider moving tokens behind a server-side HttpOnly-cookie session.
+
+The frontend loads these runtime values from `GET /api/public-config`, so the same frontend image can be promoted between environments:
+
+- `MCHO_OIDC_AUTHORITY`: OIDC authority URL used for discovery
+- `MCHO_OIDC_CLIENT_ID`: public SPA client identifier; never a client secret
+- `MCHO_OIDC_RESOURCE`: optional resource/audience request parameter
+- `MCHO_MAP_STYLE_URL`: approved MapLibre style URL
+
+API trust settings remain server-side. `OIDC_ISSUER` must exactly match the access-token `iss` claim; `OIDC_AUDIENCE` must match the API access-token `aud`; `OIDC_JWKS_URL` must be the trusted issuer's JWKS endpoint. A client-side role display is informative only—API role checks are authoritative.

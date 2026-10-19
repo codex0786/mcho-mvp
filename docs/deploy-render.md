@@ -49,4 +49,4 @@ Use the last successful application deployment for an app rollback. Database mig
 
 - Render has not been provisioned by this change.
 - The initial Alembic migration uses metadata-driven table creation. Replace it with explicit migrations and test upgrade/downgrade behavior before production.
-- The OIDC provider and MFA policy are not configured. Source/ingestion endpoints are implemented but no source is approved or active by default. Scheduled ingestion, HDX/Copernicus/NASA/maritime connectors, raster/tile services, alerting, backup automation, and load/security tests are not completed.
+- The OIDC provider and MFA policy are not configured; the analyst UI stays disabled until web and API identity settings are aligned. Source/ingestion endpoints are implemented but no source is approved or active by default. Scheduled ingestion, HDX/Copernicus/NASA/maritime connectors, raster/tile services, alerting, backup automation, and load/security tests are not completed.

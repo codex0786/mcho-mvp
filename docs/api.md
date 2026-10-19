@@ -4,6 +4,7 @@ OpenAPI docs are served at `/docs`.
 
 - `GET /api/v1/health/live`
 - `GET /api/v1/health/ready`
+- `GET /api/v1/auth/me` (verified OIDC access token; returns subject/issuer/roles, never the token)
 - `GET /api/v1/sources`
 - `GET /api/v1/events`
 - `POST /api/v1/events/drafts/from-document/{document_id}` (analyst/reviewer/admin OIDC role; source document must be individually approved and its source active with reviewed terms)
@@ -24,3 +25,6 @@ Event listing only returns published, non-synthetic records. Map queries require
 ## Analyst drafting workflow
 
 Source reports are metadata-only records and are not automatically treated as facts. An analyst can create a human-authored event draft from an individually approved source document. The API records a reported-claim row, evidence link, initial revision, review task and audit event; it returns an unpublished `pending_review` event. Verification and publication remain separate human actions. Draft coordinates require an explicit uncertainty estimate; timestamps must include an offset.
+
+
+The browser analyst workspace is available at `/analyst` when OIDC browser configuration has been supplied to the web service. The access token is validated again by the API and role checks remain server-enforced.

@@ -5,7 +5,7 @@ export default function Home() {
     <main className="shell">
       <header className="topbar">
         <div><div className="eyebrow">EVIDENCE-FIRST REGIONAL MONITORING</div><h1>MENA Conflict &amp; Humanitarian Observatory</h1></div>
-        <span className="status">MVP scaffold · No live feed configured</span>
+        <div className="header-actions"><span className="status">MVP scaffold · No live feed configured</span><a className="text-link" href="/analyst">Analyst workspace →</a></div>
       </header>
       <section className="notice" role="status"><strong>Data status:</strong> This deployment does not contain live conflict data. Connect authorized sources and complete verification before publishing real events.</section>
       <section className="toolbar" aria-label="Map filters">

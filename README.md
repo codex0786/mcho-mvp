@@ -22,7 +22,7 @@ An evidence-first geospatial observatory starter. It is designed to connect date
 
 ## Phase 5: human-authored event drafts
 
-The API now allows an analyst/reviewer/admin to create an unpublished event draft from an individually approved source document. It records the report as a claim, links the document as evidence, creates revision 1 and a review task, and leaves verification/publication separate. See [the analyst workflow](./docs/phase-5-analyst-workflow.md). The browser analyst workspace and actual OIDC provider/session setup are still pending.
+The API now allows an analyst/reviewer/admin to create an unpublished event draft from an individually approved source document. It records the report as a claim, links the document as evidence, creates revision 1 and a review task, and leaves verification/publication separate. See [the analyst workflow](./docs/phase-5-analyst-workflow.md). The `/analyst` browser workspace supports OIDC Authorization Code + PKCE, source-document inspection, and role-gated draft creation. It stays disabled until the organization configures an identity provider, registered redirects and matching API token validation settings.
 
 ## Phase 4: metadata-only source ingestion
 
@@ -78,4 +78,4 @@ See `.env.example`. Keep credentials out of source control. External provider in
 
 ## Important limitations
 
-This is an initial implementation scaffold, not a validated production intelligence system. In this environment, Python source compilation and two schema-contract tests passed; a full Docker/Next.js build was not verified because Docker is unavailable and package installation could not complete without network access. Before operational use, complete provider-specific licensing checks, source connectors, identity-provider integration, security review, restore testing, geospatial performance tests, satellite validation, and maritime aggregation validation. Do not use it for targeting or tactical military decisions.
+This is an initial implementation scaffold, not a validated production intelligence system. GitHub Actions validates API/PostGIS migrations and contract tests, no-network ingestion tests, frontend typecheck/build, and API/worker/web Docker image builds. A live hosting environment and a real identity/provider configuration have not been provisioned. Before operational use, complete provider-specific licensing checks, source connectors, identity-provider integration, security review, restore testing, geospatial performance tests, satellite validation, and maritime aggregation validation. Do not use it for targeting or tactical military decisions.

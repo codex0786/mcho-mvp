@@ -29,6 +29,12 @@
 
 Coordinates are optional. When absent, the record may still be country/time-filterable but will not be represented as a precise map point. Never fabricate coordinates to fill a map gap.
 
-## Required next UI step
+## Browser workspace implemented
 
-The API workflow is available, but the full analyst workspace still needs a proper OIDC login/session flow against the chosen identity provider, source-document queue/table, draft form, evidence panel, review history, and clear role-gated publish control. Do not make a raw token-paste form the production login substitute. No identity provider is currently configured in the deployment blueprint.
+The `/analyst` page now includes:
+- OIDC login using Authorization Code + PKCE, an identity callback route and logout.
+- Runtime public configuration (`/api/public-config`) so the identity-provider client settings need not be compiled into the image.
+- API-side identity validation, source document review-state filter, source metadata/canonical-link panel, draft form and explicit warnings that drafts stay unpublished.
+- Role-aware draft controls; the API independently enforces roles and source/document eligibility.
+
+The browser workspace is intentionally disabled until the real OIDC authority, client ID/resource, API issuer/audience/JWKS and exact redirect URLs are configured. It does not accept pasted tokens. A full reviewer decision UI and a server-side HttpOnly-cookie BFF session remain follow-up hardening items.

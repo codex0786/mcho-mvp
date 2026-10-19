@@ -68,6 +68,11 @@ services:
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api/v1}
       NEXT_PUBLIC_MAP_STYLE_URL: ${NEXT_PUBLIC_MAP_STYLE_URL:-}
+      MCHO_API_ORIGIN: ${MCHO_API_ORIGIN:-}
+      MCHO_MAP_STYLE_URL: ${MCHO_MAP_STYLE_URL:-}
+      MCHO_OIDC_AUTHORITY: ${MCHO_OIDC_AUTHORITY:-}
+      MCHO_OIDC_CLIENT_ID: ${MCHO_OIDC_CLIENT_ID:-}
+      MCHO_OIDC_RESOURCE: ${MCHO_OIDC_RESOURCE:-}
     depends_on:
       - api
     ports:

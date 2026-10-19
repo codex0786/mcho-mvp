@@ -13,11 +13,11 @@
 - Admin-only source registry and manual ingestion controls; analyst/reviewer/publisher/admin source-document review UI; human-authored event-draft path; separate verification and publication actions.
 - Runtime liveness/readiness probes, safe request correlation logs, admin operational snapshot, staging smoke-test script, backup/restore and incident-response runbooks.
 - Docker Compose local stack and Render Blueprint/deployment guide (cloud has not been provisioned).
-- GitHub Actions CI for API/PostGIS migrations/tests, worker connector tests, frontend typecheck/build, smoke-test/Compose validation and all three Docker image builds.
+- GitHub Actions CI for API/PostGIS migrations/tests, database-backed review-to-publication workflow tests, worker connector tests, OIDC BFF token-custody/CSRF tests, frontend typecheck/build, smoke-test/Compose validation and all three Docker image builds.
 
 ## Current validation status
 
-The server-side BFF session hardening and automated test harness passed GitHub Actions on commit `ed13c060d5693139adf7cb103413d080c03ff696`: API/PostGIS tests, ingestion connector tests, frontend security tests + typecheck/production build, and all Docker image builds. Phase 11 separation-of-duties changes are now being added and must pass their own CI run before being marked validated.
+Phase 10 BFF hardening passed GitHub Actions on commit `ed13c060d5693139adf7cb103413d080c03ff696`. Phase 11 independent review/publication gates passed on commit `251c89d119012963a20d86736e44f3969c93300b` across API/PostGIS tests, connector tests, frontend security/type-check/build and Docker builds. Phase 12 adds HTTP-level database-backed review-to-publication tests; its own CI run must pass before the new coverage is considered validated.
 
 ## Not yet operational
 

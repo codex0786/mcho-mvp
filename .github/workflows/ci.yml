@@ -38,6 +38,7 @@ jobs:
     env:
       DATABASE_URL: postgresql+psycopg://mcho:mcho_test_password@localhost:5432/mcho_test
       APP_ENV: test
+      MCHO_INTEGRATION_TESTS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

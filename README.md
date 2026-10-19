@@ -80,6 +80,10 @@ The API requires PostgreSQL/PostGIS for the complete spatial schema. Unit tests 
 
 Reviewer and publisher APIs validate signed OIDC/JWT access tokens, including issuer, audience, expiration, signing key and configured roles. See [OIDC authentication setup](./docs/security-oidc.md). The Render Blueprint does not guess an identity provider; configure its trusted issuer, API audience, JWKS URL and role claim before enabling review operations.
 
+## Phase 12: database-backed publication tests
+
+CI now exercises a full HTTP/API flow against PostgreSQL/PostGIS: editor self-review is blocked; review alone does not publish; a different reviewer cannot publish their own decision; an independent publisher can publish only after approval; and a new revision invalidates an older approval. Test rows roll back inside an outer transaction. See [the integration-test guide](./docs/phase-12-database-integration.md).
+
 ## Phase 11: independent review and publication
 
 The API requires a separate editor, reviewer and publisher for the exact revision being published. Publication additionally requires a positive review decision recorded after the latest immutable revision and no open review tasks. Corrections reset verification and reopen review, and cannot self-assert a verified state. See [independent publication controls](./docs/phase-11-independent-publication.md).

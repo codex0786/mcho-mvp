@@ -13,7 +13,7 @@ from sqlalchemy.engine import make_url
 from app.core.config import Settings, settings
 from app.core.review_policy import apply_review_decision
 from app.core.security import Principal, get_current_principal, require_reviewer, require_publisher
-from app.schemas.events import CorrectionIn, EventOut, ReviewDecisionIn
+from app.schemas.events import CorrectionIn, EventOut, ReviewDecisionIn, EventDraftFromDocumentIn
 from app.schemas.sources import SourceCreateIn, SourcePatchIn
 
 
@@ -165,3 +165,72 @@ def test_rejecting_synthetic_fixture_is_blocked():
     event = SimpleNamespace(is_synthetic=True, status="draft", verification_status="unverified")
     with pytest.raises(ValueError):
         apply_review_decision(event, "verify")
+
+
+
+def test_event_draft_requires_explicit_source_summary_and_uncertain_location():
+    draft = EventDraftFromDocumentIn(
+        event_type="infrastructure_damage",
+        summary="A reviewed source reports damage to a public building.",
+        event_start="2026-10-18T08:00:00Z",
+        country_code="LB",
+        latitude=33.89,
+        longitude=35.50,
+        spatial_uncertainty_m=1500,
+        rationale="Drafted from a reviewed source; exact damage attribution remains unverified.",
+    )
+    assert draft.country_code == "LB"
+    assert draft.spatial_uncertainty_m == 1500
+
+
+def test_event_draft_rejects_point_without_uncertainty_or_partial_coordinates():
+    with pytest.raises(ValidationError):
+        EventDraftFromDocumentIn(
+            event_type="infrastructure_damage",
+            summary="A reviewed source reports damage to a public building.",
+            latitude=33.89,
+            longitude=35.50,
+            rationale="Location precision was not assessed from the source.",
+        )
+    with pytest.raises(ValidationError):
+        EventDraftFromDocumentIn(
+            event_type="infrastructure_damage",
+            summary="A reviewed source reports damage to a public building.",
+            latitude=33.89,
+            spatial_uncertainty_m=500,
+            rationale="Only one coordinate is known; do not imply a precise point.",
+        )
+
+
+def test_event_draft_rejects_naive_timestamps_and_reversed_ranges():
+    with pytest.raises(ValidationError):
+        EventDraftFromDocumentIn(
+            event_type="armed_clash_reported",
+            summary="A source reports a clash in the area.",
+            event_start="2026-10-18T08:00:00",
+            rationale="The source timestamp lacks an explicit timezone offset.",
+        )
+    with pytest.raises(ValidationError):
+        EventDraftFromDocumentIn(
+            event_type="armed_clash_reported",
+            summary="A source reports a clash in the area.",
+            event_start="2026-10-18T08:00:00Z",
+            event_end="2026-10-17T08:00:00Z",
+            rationale="The time range is intentionally invalid for validation testing.",
+        )
+
+
+def test_event_draft_rejects_invalid_country_codes_and_event_taxonomy():
+    with pytest.raises(ValidationError):
+        EventDraftFromDocumentIn(
+            event_type="infrastructure_damage",
+            summary="A reviewed source reports damage to a public building.",
+            country_code="lb",
+            rationale="Country code must follow the uppercase ISO alpha-2 convention.",
+        )
+    with pytest.raises(ValidationError):
+        EventDraftFromDocumentIn(
+            event_type="unreviewed_source_is_the_truth",
+            summary="A reviewed source reports damage to a public building.",
+            rationale="Event taxonomy is a controlled classification.",
+        )

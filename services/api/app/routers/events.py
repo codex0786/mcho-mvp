@@ -3,12 +3,136 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
+from geoalchemy2.elements import WKTElement
 from app.db.session import get_db
-from app.models.entities import Event, EventEvidence, SourceDocument, Source, EventRevision, EventStatus, VerificationStatus, AuditLog
-from app.schemas.events import EventOut, EventPage, CorrectionIn
-from app.core.security import Principal, require_publisher
+from app.models.entities import (Event, EventEvidence, SourceDocument, Source, EventRevision, EventStatus, VerificationStatus, AuditLog, Claim, ReviewTask, utcnow)
+from app.schemas.events import EventOut, EventPage, CorrectionIn, EventDraftFromDocumentIn
+from app.core.security import Principal, require_publisher, require_roles
 
 router = APIRouter(prefix="", tags=["events"])
+require_analyst = require_roles("analyst", "reviewer", "admin")
+
+
+@router.post("/events/drafts/from-document/{document_id}", status_code=201)
+def create_event_draft_from_document(
+    document_id: UUID,
+    body: EventDraftFromDocumentIn,
+    analyst: Principal = Depends(require_analyst),
+    db: Session = Depends(get_db),
+):
+    """Create an explicitly human-authored, unpublished event draft from reviewed evidence."""
+    document = db.get(SourceDocument, document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Source document not found.")
+    if document.review_status != "approved":
+        raise HTTPException(
+            status_code=409,
+            detail="Only individually approved source documents can be attached to an event draft.",
+        )
+    source = db.get(Source, document.source_id)
+    eligible_license_statuses = {"approved", "public_domain", "open_license", "licensed"}
+    if source is None:
+        raise HTTPException(status_code=409, detail="Source document references a missing source.")
+    if (
+        not source.active
+        or source.license_status not in eligible_license_statuses
+        or source.terms_reviewed_at is None
+        or not source.terms_reviewed_by
+        or not source.license_terms_url
+        or not source.retention_policy
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Source must be active with reviewed use terms and a retention policy.",
+        )
+
+    event = Event(
+        event_type=body.event_type,
+        summary=body.summary.strip(),
+        event_start=body.event_start,
+        event_end=body.event_end,
+        country_code=body.country_code,
+        status=EventStatus.pending_review,
+        verification_status=VerificationStatus.unverified,
+        attribution_status="unknown",
+        confidence_label="unassessed",
+        spatial_uncertainty_m=body.spatial_uncertainty_m,
+        is_synthetic=False,
+    )
+    if body.latitude is not None and body.longitude is not None:
+        event.geometry = WKTElement(f"POINT({body.longitude} {body.latitude})", srid=4326)
+
+    db.add(event)
+    db.flush()
+    db.add_all([
+        Claim(
+            event_id=event.id,
+            claim_text=body.summary.strip(),
+            claim_type="reported_claim",
+            attribution_status="unknown",
+        ),
+        EventEvidence(
+            event_id=event.id,
+            source_document_id=document.id,
+            relationship="supports",
+            note="Analyst linked this reviewed source document as supporting evidence.",
+        ),
+        EventRevision(
+            event_id=event.id,
+            revision_number=1,
+            snapshot={
+                "event_type": body.event_type,
+                "summary": body.summary.strip(),
+                "event_start": body.event_start.isoformat() if body.event_start else None,
+                "event_end": body.event_end.isoformat() if body.event_end else None,
+                "country_code": body.country_code,
+                "latitude": body.latitude,
+                "longitude": body.longitude,
+                "spatial_uncertainty_m": body.spatial_uncertainty_m,
+                "source_document_id": str(document.id),
+                "status": EventStatus.pending_review.value,
+                "verification_status": VerificationStatus.unverified.value,
+                "attribution_status": "unknown",
+            },
+            changed_by=analyst.identity,
+            rationale=body.rationale,
+            changed_at=utcnow(),
+        ),
+        ReviewTask(
+            subject_type="event",
+            subject_id=event.id,
+            status="pending",
+            priority="high" if body.event_type in {
+                "civilian_casualties", "mass_casualty", "perpetrator_attribution", "blockade_violation"
+            } else "normal",
+        ),
+        AuditLog(
+            actor_id=analyst.identity,
+            action="create_event_draft_from_source_document",
+            subject_type="event",
+            subject_id=str(event.id),
+            detail={
+                "source_document_id": str(document.id),
+                "source_id": str(source.id),
+                "rationale": body.rationale,
+                "issuer": analyst.issuer,
+                "roles": sorted(analyst.roles),
+                "status": EventStatus.pending_review.value,
+                "auto_publish": False,
+            },
+        ),
+    ])
+    db.commit()
+    db.refresh(event)
+    return {
+        "event_id": str(event.id),
+        "source_document_id": str(document.id),
+        "review_status": "pending_review",
+        "verification_status": event.verification_status.value,
+        "event_status": event.status.value,
+        "published": False,
+        "message": "Human-authored draft created. An independent review and separate publication action are required.",
+    }
 
 
 @router.get("/events", response_model=EventPage)

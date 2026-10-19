@@ -10,6 +10,7 @@
 - Manual ingestion run model, single-active-run constraint per source, checkpoints, external ID/content-hash deduplication, sanitized error ledger and run metrics.
 - Read-only ReliefWeb API v2 metadata connector: pre-approved app name/country-scope checks; bounded request size/page count; totalCount-based pagination; overlap-window checkpointing; stable metadata normalization; canonical source URL validation; source-document review tasks; no article body download/storage.
 - Admin-only endpoints to register/review source configuration, queue connector runs and inspect run/error status. Reviewer/analyst/publisher roles can inspect source-document metadata and links.
+- OIDC-gated human-authored event draft endpoint from an individually approved source document. Creates a reported-claim row, supporting evidence link, immutable initial revision, review task and audit record; leaves the event pending review and unpublished.
 - Docker Compose local stack and a Render Blueprint/deployment guide (not provisioned).
 - GitHub Actions pipeline for API compile/migration/tests on PostGIS, no-network connector tests, frontend typecheck/production build and API/worker/web Docker builds.
 
@@ -22,7 +23,7 @@ Phase 4 implementation is being validated via GitHub Actions on the latest commi
 - No cloud services have been provisioned; no live public URL exists from this repository.
 - OIDC provider/tenant, MFA policy, real roles and browser login token handling are not configured.
 - ReliefWeb app name, country scope and source terms are not configured; no live feed is enabled. Other HDX HAPI, Copernicus, NASA FIRMS and licensed maritime integrations remain future work/guards.
-- Ingestion-created source documents are review candidates, not event claims. Event creation/linking from approved documents and full analyst workbench are still needed for end-to-end analyst workflows.
+- Ingestion-created source documents are review candidates, not event claims. The API now supports manual draft creation/linking from approved documents; the full analyst workbench and browser OIDC login/session are still needed for end-to-end workflows.
 - Automated schedules, provider freshness alerts, production backups/restore testing, object storage, satellite raster processing/change analysis, maritime aggregation, observability dashboards, load tests and security assessment remain incomplete.
 - The first migration uses metadata-driven schema creation. Replace that legacy initial migration with explicit production-safe operations in a dedicated future migration before production use.
 

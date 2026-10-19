@@ -20,6 +20,10 @@ An evidence-first geospatial observatory starter. It is designed to connect date
 - Next.js + TypeScript + MapLibre GL JS
 - Docker Compose for local development
 
+## Phase 5: human-authored event drafts
+
+The API now allows an analyst/reviewer/admin to create an unpublished event draft from an individually approved source document. It records the report as a claim, links the document as evidence, creates revision 1 and a review task, and leaves verification/publication separate. See [the analyst workflow](./docs/phase-5-analyst-workflow.md). The browser analyst workspace and actual OIDC provider/session setup are still pending.
+
 ## Phase 4: metadata-only source ingestion
 
 The repository includes a **manual, disabled-by-default ReliefWeb API v2 adapter**. It stores source metadata and canonical links—not article bodies. An ingestion run creates a source-document review task; it does not create or publish event claims.

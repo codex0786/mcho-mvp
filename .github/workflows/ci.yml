@@ -122,6 +122,17 @@ jobs:
         run: cp .env.example .env && docker compose config --quiet
       - name: Build API image
         run: docker build --pull -f services/api/Dockerfile -t mcho-api:ci services/api
+      - name: Start the API image and check liveness
+        # Catches start-command failures (the image CMD / Render dockerCommand),
+        # which a build alone does not exercise. No database is needed for /live.
+        run: |
+          docker run -d --name mcho-api-ci -e PORT=8000 -p 127.0.0.1:8000:8000 mcho-api:ci /app/start.sh
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:8000/api/v1/health/live; then echo; exit 0; fi
+            sleep 1
+          done
+          docker logs mcho-api-ci
+          exit 1
       - name: Build worker image
         run: docker build --pull -f services/workers/Dockerfile -t mcho-worker:ci .
       - name: Build frontend image using the same-origin runtime proxy

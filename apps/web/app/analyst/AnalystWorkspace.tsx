@@ -174,7 +174,7 @@ export default function AnalystWorkspace() {
         setPrincipal(null);
         setError(cause instanceof Error ? cause.message : "Unable to load authenticated source documents.");
         if (cause instanceof Error && cause.message.includes("Sign in again.")) {
-          await manager.removeUser();
+          await manager?.removeUser();
           setUser(null);
         }
       } finally {

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createOidcUserManager, isOidcConfigured, loadRuntimeConfig } from "../../lib/oidc";
+import { createOidcUserManager, isOidcConfigured, loadRuntimeConfig } from "../../../lib/oidc";
 
 export default function AuthCallbackPage() {
   const router = useRouter();

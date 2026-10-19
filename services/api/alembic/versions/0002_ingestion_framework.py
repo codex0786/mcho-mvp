@@ -3,11 +3,9 @@
 Revision ID: 0002_ingestion_framework
 Revises: 0001_initial
 """
+import sqlalchemy as sa
 from alembic import op
 from sqlalchemy import text
-
-from app.db.session import Base
-from app.models import entities  # noqa: F401
 
 revision = "0002_ingestion_framework"
 down_revision = "0001_initial"
@@ -17,18 +15,80 @@ depends_on = None
 
 def upgrade():
     bind = op.get_bind()
-    # The original 0001 migration used metadata.create_all. This creates the new
-    # ingestion tables for older installations without disturbing existing data.
-    Base.metadata.create_all(
-        bind=bind,
-        tables=[
-            entities.IngestionRun.__table__,
-            entities.IngestionError.__table__,
-            entities.SourceCheckpoint.__table__,
-            entities.SourceRecord.__table__,
-        ],
-        checkfirst=True,
-    )
+    # Databases bootstrapped by the legacy create_all-based 0001 may already
+    # contain these tables, so each one is created only when absent. The DDL is
+    # explicit and frozen here; it must not be derived from the live models.
+    existing = set(sa.inspect(bind).get_table_names())
+    if "ingestion_runs" not in existing:
+        op.create_table("ingestion_runs",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("source_id", sa.UUID(), nullable=False),
+        sa.Column("task_id", sa.String(length=160), nullable=True),
+        sa.Column("trigger", sa.String(length=40), nullable=False),
+        sa.Column("status", sa.String(length=40), nullable=False),
+        sa.Column("adapter_name", sa.String(length=120), nullable=False),
+        sa.Column("adapter_version", sa.String(length=80), nullable=False),
+        sa.Column("requested_by", sa.String(length=240), nullable=True),
+        sa.Column("cursor_in", sa.JSON(), nullable=False),
+        sa.Column("cursor_out", sa.JSON(), nullable=False),
+        sa.Column("pages_fetched", sa.Integer(), nullable=False),
+        sa.Column("records_fetched", sa.Integer(), nullable=False),
+        sa.Column("records_created", sa.Integer(), nullable=False),
+        sa.Column("records_updated", sa.Integer(), nullable=False),
+        sa.Column("records_unchanged", sa.Integer(), nullable=False),
+        sa.Column("records_failed", sa.Integer(), nullable=False),
+        sa.Column("error_summary", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(["source_id"], ["sources.id"], ondelete="RESTRICT"),
+        sa.PrimaryKeyConstraint("id")
+        )
+        op.create_index("ix_ingestion_runs_source_created", "ingestion_runs", ["source_id", "created_at"], unique=False)
+        op.create_index("ix_ingestion_runs_status", "ingestion_runs", ["status"], unique=False)
+    if "ingestion_errors" not in existing:
+        op.create_table("ingestion_errors",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("run_id", sa.UUID(), nullable=False),
+        sa.Column("source_id", sa.UUID(), nullable=False),
+        sa.Column("external_id", sa.String(length=255), nullable=True),
+        sa.Column("error_code", sa.String(length=80), nullable=False),
+        sa.Column("error_summary", sa.Text(), nullable=False),
+        sa.Column("row_sha256", sa.String(length=64), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(["run_id"], ["ingestion_runs.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["source_id"], ["sources.id"], ondelete="RESTRICT"),
+        sa.PrimaryKeyConstraint("id")
+        )
+        op.create_index("ix_ingestion_errors_run_created", "ingestion_errors", ["run_id", "created_at"], unique=False)
+    if "source_checkpoints" not in existing:
+        op.create_table("source_checkpoints",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("source_id", sa.UUID(), nullable=False),
+        sa.Column("last_run_id", sa.UUID(), nullable=True),
+        sa.Column("cursor_json", sa.JSON(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(["last_run_id"], ["ingestion_runs.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(["source_id"], ["sources.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("source_id")
+        )
+    if "source_records" not in existing:
+        op.create_table("source_records",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("source_id", sa.UUID(), nullable=False),
+        sa.Column("external_id", sa.String(length=255), nullable=False),
+        sa.Column("source_document_id", sa.UUID(), nullable=False),
+        sa.Column("latest_content_hash", sa.String(length=128), nullable=False),
+        sa.Column("metadata_json", sa.JSON(), nullable=False),
+        sa.Column("first_seen_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(["source_document_id"], ["source_documents.id"], ondelete="RESTRICT"),
+        sa.ForeignKeyConstraint(["source_id"], ["sources.id"], ondelete="RESTRICT"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("source_id", "external_id", name="uq_source_record_external_id")
+        )
+        op.create_index("ix_source_records_last_seen", "source_records", ["last_seen_at"], unique=False)
     op.execute(text("ALTER TABLE sources ADD COLUMN IF NOT EXISTS license_terms_url TEXT"))
     op.execute(text("ALTER TABLE sources ADD COLUMN IF NOT EXISTS owner_name VARCHAR(240)"))
     op.execute(text("ALTER TABLE sources ADD COLUMN IF NOT EXISTS retention_policy TEXT"))
@@ -68,7 +128,6 @@ def upgrade():
 
 
 def downgrade():
-    bind = op.get_bind()
     op.execute(text("DROP INDEX IF EXISTS uq_ingestion_run_active_source"))
     op.execute(text("ALTER TABLE source_documents DROP COLUMN IF EXISTS review_rationale"))
     op.execute(text("ALTER TABLE source_documents DROP COLUMN IF EXISTS reviewed_at"))
@@ -80,13 +139,5 @@ def downgrade():
     op.execute(text("ALTER TABLE sources DROP COLUMN IF EXISTS retention_policy"))
     op.execute(text("ALTER TABLE sources DROP COLUMN IF EXISTS owner_name"))
     op.execute(text("ALTER TABLE sources DROP COLUMN IF EXISTS license_terms_url"))
-    Base.metadata.drop_all(
-        bind=bind,
-        tables=[
-            entities.SourceCheckpoint.__table__,
-            entities.SourceRecord.__table__,
-            entities.IngestionError.__table__,
-            entities.IngestionRun.__table__,
-        ],
-        checkfirst=True,
-    )
+    for table in ("source_records", "source_checkpoints", "ingestion_errors", "ingestion_runs"):
+        op.execute(text(f"DROP TABLE IF EXISTS {table}"))

@@ -2,10 +2,13 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from app.core.security import require_observation_access
 from app.db.session import get_db
 from app.models.entities import SatelliteScene, MaritimeAggregate, HumanitarianIndicator
 
-router = APIRouter(tags=["observations"])
+# Restricted until observations have review/publication status and provenance
+# gates comparable to events; the public trust boundary is "approved only".
+router = APIRouter(tags=["observations"], dependencies=[Depends(require_observation_access)])
 
 
 @router.get("/imagery/scenes")

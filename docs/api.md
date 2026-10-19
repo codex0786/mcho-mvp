@@ -13,9 +13,9 @@ OpenAPI docs are served at `/docs`.
 - `GET /api/v1/events/{event_id}`
 - `GET /api/v1/events/{event_id}/evidence`
 - `GET /api/v1/map/events?west=...&south=...&east=...&north=...`
-- `GET /api/v1/imagery/scenes`
-- `GET /api/v1/maritime/aggregates`
-- `GET /api/v1/humanitarian/indicators`
+- `GET /api/v1/imagery/scenes` (analyst/reviewer/publisher/admin OIDC role; restricted until observations have publication and provenance gates)
+- `GET /api/v1/maritime/aggregates` (analyst/reviewer/publisher/admin OIDC role; restricted until observations have publication and provenance gates)
+- `GET /api/v1/humanitarian/indicators` (analyst/reviewer/publisher/admin OIDC role; restricted until observations have publication and provenance gates)
 - `GET /api/v1/reviews/tasks` (reviewer/publisher/admin OIDC role)
 - `POST /api/v1/reviews/tasks/{task_id}/decisions` (reviewer/admin OIDC role)
 - `GET /api/v1/reviews/tasks?status=pending` (reviewer/publisher/admin OIDC role; includes subject summary and source context)

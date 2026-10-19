@@ -9,3 +9,7 @@ node_modules/
 dist/
 coverage.xml
 *.py[cod]
+*.egg-info/
+playwright-report/
+test-results/
+*.tsbuildinfo

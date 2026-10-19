@@ -270,9 +270,9 @@ export default function DemoExperience() {
     return (
       <>
         <div className="mcho-metrics">
-          <Metric label="Review candidates" value="03" note="Fictional records awaiting assessment" icon="◉" />
-          <Metric label="Evidence-linked drafts" value="05" note="Synthetic links to source metadata" icon="⌁" />
-          <Metric label="Satellite candidates" value="04" note="Examples, not damage assessments" icon="◎" />
+          <Metric label="Review candidates" value="01" note="One fictional record awaiting review" icon="◉" />
+          <Metric label="Evidence-linked records" value="05" note="Synthetic provenance examples" icon="⌁" />
+          <Metric label="Satellite candidates" value="02" note="Examples, not damage assessments" icon="◎" />
           <Metric label="Data connectors" value="00" note="Production feeds are disabled" icon="⇄" />
         </div>
         <div className="mcho-content-grid">

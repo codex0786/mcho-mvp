@@ -5,8 +5,8 @@
 # connection strings you enter when applying the Blueprint; nothing is hard-coded.
 #
 # Free-tier constraints this file accounts for:
-# - preDeployCommand is paid-only, so migrations run at container start (Alembic
-#   is a no-op when already at head; the free plan runs a single instance).
+# - preDeployCommand is paid-only, so the image's start script applies migrations
+#   when RUN_MIGRATIONS_ON_START=1 (Alembic is a no-op at head; one free instance).
 # - Free web services sleep after 15 idle minutes; the first request then takes
 #   about a minute.
 # - No Celery worker: Render has no free background workers. Manual ingestion
@@ -22,7 +22,9 @@ services:
     region: virginia
     dockerfilePath: ./services/api/Dockerfile
     dockerContext: ./services/api
-    dockerCommand: sh -c 'alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}'
+    # Render does not run dockerCommand through a shell that strips quotes, so the
+    # image's own start script handles migrations (RUN_MIGRATIONS_ON_START below).
+    dockerCommand: /app/start.sh
     autoDeployTrigger: checksPass
     healthCheckPath: /api/v1/health/live
     envVars:
@@ -30,6 +32,9 @@ services:
         value: production
       - key: LOG_LEVEL
         value: INFO
+      # preDeployCommand is paid-only, so migrations run at container start.
+      - key: RUN_MIGRATIONS_ON_START
+        value: "1"
       # Neon *direct* (non-pooled) connection string, e.g.
       # postgresql://USER:PASSWORD@ep-xxxx.us-east-1.aws.neon.tech/neondb?sslmode=require
       - key: DATABASE_URL

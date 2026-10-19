@@ -16,7 +16,8 @@ from app.models.entities import (
     AuditLog, IngestionError, IngestionRun, ReviewTask, Source, SourceCheckpoint, SourceDocument,
     SourceRecord, utcnow,
 )
-from app.schemas.sources import APPROVED_LICENSE_STATUSES
+from app.core.ingestion_runs import run_is_stale
+from app.core.source_policy import source_is_publishable
 from mcho_workers.connectors.reliefweb import ReliefWebConnector
 from mcho_workers.normalization import normalize_reliefweb_record
 
@@ -114,6 +115,27 @@ def _record_row_error(db: Session, run: IngestionRun, source: Source, row: dict[
     ))
 
 
+class TransientProviderError(Exception):
+    """A provider failure worth retrying; the only exception Celery auto-retries."""
+
+
+_TRANSIENT_TRANSPORT_ERRORS = (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError)
+
+
+def is_transient_provider_error(exc: httpx.HTTPError) -> bool:
+    """Timeouts, connection failures, 408/429 and 5xx may recover; other 4xx will not."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        return code in {408, 429} or code >= 500
+    return isinstance(exc, _TRANSIENT_TRANSPORT_ERRORS)
+
+
+def _describe_http_error(exc: httpx.HTTPError) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code}"
+    return type(exc).__name__
+
+
 def _mark_run(run: IngestionRun, status: str, message: str | None = None) -> None:
     run.status = status
     run.error_summary = message
@@ -134,7 +156,10 @@ def execute_ingestion(source_id_raw: str, run_id_raw: str, attempt: int = 0, max
         if run.status in terminal_statuses:
             return {"run_id": str(run.id), "status": run.status, "detail": "This ingestion run has already reached a terminal state."}
         if run.status == "running":
-            return {"run_id": str(run.id), "status": "already_running", "detail": "A worker already claimed this ingestion run."}
+            if not run_is_stale(run, utcnow()):
+                return {"run_id": str(run.id), "status": "already_running", "detail": "A worker already claimed this ingestion run."}
+            # A redelivered task for a run whose worker died: resume from the checkpoint.
+            run.started_at = utcnow()
         run.status = "running"
         run.started_at = run.started_at or utcnow()
         run.error_summary = None
@@ -144,9 +169,7 @@ def execute_ingestion(source_id_raw: str, run_id_raw: str, attempt: int = 0, max
             _mark_run(run, "skipped", "No adapter is implemented for this source type.")
             db.commit()
             return {"run_id": str(run.id), "status": run.status, "reason": run.error_summary}
-        if (not source.active or source.license_status not in APPROVED_LICENSE_STATUSES
-                or not source.terms_reviewed_at or not source.terms_reviewed_by
-                or not source.license_terms_url or not source.retention_policy):
+        if not source_is_publishable(source):
             _mark_run(run, "skipped", "Source is inactive or its permitted use has not been reviewed.")
             db.commit()
             return {"run_id": str(run.id), "status": run.status, "reason": run.error_summary}
@@ -234,16 +257,21 @@ def execute_ingestion(source_id_raw: str, run_id_raw: str, attempt: int = 0, max
             "records_updated": run.records_updated, "records_unchanged": run.records_unchanged,
             "records_failed": run.records_failed, "cursor_out": run.cursor_out,
         }
-    except httpx.HTTPError:
+    except httpx.HTTPError as exc:
         db.rollback()
+        retry = is_transient_provider_error(exc) and attempt < max_retries
         run = db.get(IngestionRun, run_id)
         if run is not None:
-            if attempt >= max_retries:
-                _mark_run(run, "failed", "Provider request failed after automatic retries.")
-            else:
+            if retry:
                 run.status = "retrying"
                 run.error_summary = "Provider request failed transiently; automatic retry scheduled."
+            elif is_transient_provider_error(exc):
+                _mark_run(run, "failed", "Provider request failed after automatic retries.")
+            else:
+                _mark_run(run, "failed", f"Provider rejected the request ({_describe_http_error(exc)}); not retried. Check provider access and configuration.")
             db.commit()
+        if retry:
+            raise TransientProviderError(_describe_http_error(exc)) from exc
         raise
     except Exception as exc:
         db.rollback()

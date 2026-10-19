@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.review_policy import apply_review_decision, ensure_independent_reviewer
 from app.core.security import Principal, require_reviewer, require_review_queue_access
+from app.core.source_policy import eligible_evidence_clauses
 from app.db.session import get_db
 from app.models.entities import (
     AuditLog, Event, EventEvidence, EventRevision, EventStatus, ReviewDecision, ReviewTask,
@@ -76,7 +77,8 @@ def decide(
     reviewer: Principal = Depends(require_reviewer),
     db: Session = Depends(get_db),
 ):
-    task = db.get(ReviewTask, task_id)
+    # Row locks serialise concurrent decisions: the second waits, then sees a closed task.
+    task = db.get(ReviewTask, task_id, with_for_update=True)
     if not task:
         raise HTTPException(status_code=404, detail="Review task not found.")
     if task.status not in {"pending", "in_review", "needs_more_evidence"}:
@@ -85,7 +87,7 @@ def decide(
     event = None
     document = None
     if task.subject_type == "event":
-        event = db.get(Event, task.subject_id)
+        event = db.get(Event, task.subject_id, with_for_update=True)
         if event is None:
             raise HTTPException(status_code=409, detail="Review task references a missing event.")
         latest_revision = db.scalar(
@@ -116,7 +118,6 @@ def decide(
 
         # Removing approval must immediately remove public events whose remaining
         # evidence no longer meets the publication rules.
-        eligible_statuses = {"approved", "public_domain", "open_license", "licensed"}
         linked_events = db.scalars(
             select(Event).join(EventEvidence, EventEvidence.event_id == Event.id)
             .where(EventEvidence.source_document_id == document.id, Event.status == EventStatus.published)
@@ -126,16 +127,7 @@ def decide(
                 select(func.count()).select_from(EventEvidence)
                 .join(SourceDocument, EventEvidence.source_document_id == SourceDocument.id)
                 .join(Source, SourceDocument.source_id == Source.id)
-                .where(
-                    EventEvidence.event_id == linked_event.id,
-                    Source.active.is_(True),
-                    Source.license_status.in_(eligible_statuses),
-                    Source.terms_reviewed_at.is_not(None),
-                    Source.terms_reviewed_by.is_not(None),
-                    Source.license_terms_url.is_not(None),
-                    Source.retention_policy.is_not(None),
-                    SourceDocument.review_status == "approved",
-                )
+                .where(EventEvidence.event_id == linked_event.id, *eligible_evidence_clauses())
             ) or 0
             if valid_count == 0:
                 linked_event.status = EventStatus.corrected

@@ -5,6 +5,7 @@ import time
 import uuid
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.routers import auth, events, health, ingestion, observations, reviews, sources
@@ -44,7 +45,13 @@ async def trace_request(request: Request, call_next):
             "error_type": type(exc).__name__,
             "duration_ms": round((time.perf_counter() - started) * 1000, 2),
         }, separators=(",", ":")))
-        raise
+        # Return the same JSON error shape as handled errors, with the correlation ID,
+        # and never the exception text (it can contain SQL or connection details).
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error.", "request_id": request_id},
+            headers={"X-Request-ID": request_id},
+        )
     duration_ms = round((time.perf_counter() - started) * 1000, 2)
     response.headers["X-Request-ID"] = request_id
     request_logger.info(json.dumps({

@@ -19,7 +19,7 @@ Exercise the interactive prototype in a real browser against the built Next.js p
 From `apps/web`, install the repository dependencies and Playwright's Chromium browser, then create a production build and run the test command:
 
 ```bash
-npm install
+npm ci
 npx playwright install chromium
 NEXT_PUBLIC_API_BASE_URL=https://api.example.invalid/api/v1 NEXT_PUBLIC_MAP_STYLE_URL= npm run build
 npm run test:e2e

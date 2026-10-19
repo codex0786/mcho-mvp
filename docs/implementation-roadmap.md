@@ -15,6 +15,8 @@ start now.
 
 ## M0 — Integrity fixes (≈1 week, no blockers)
 
+Status: implemented on branch `phase-19-m0-integrity`; see that branch's CI run for verification.
+
 | Item | Closes | Size | Acceptance criteria |
 |---|---|---|---|
 | Correction stores the **post-edit** snapshot; revision 1..N always equals the event state at that revision | A1 | S | DB test: correct → latest revision snapshot equals current event fields |

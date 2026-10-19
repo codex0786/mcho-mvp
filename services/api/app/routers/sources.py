@@ -7,6 +7,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.security import Principal, require_roles
+from app.core.source_policy import (
+    eligible_evidence_clauses, publishable_source_clauses, source_is_publishable,
+)
 from app.db.session import get_db
 from app.models.entities import AuditLog, Event, EventEvidence, EventStatus, Source, SourceDocument
 from app.schemas.sources import APPROVED_LICENSE_STATUSES, SourceCreateIn, SourcePatchIn
@@ -29,12 +32,7 @@ def _source_dict(source: Source) -> dict:
 
 
 def _invalidate_unsupported_events(db: Session, source: Source, actor: str, issuer: str) -> int:
-    eligible = (
-        source.active and source.license_status in APPROVED_LICENSE_STATUSES
-        and source.terms_reviewed_at is not None and source.terms_reviewed_by is not None
-        and source.license_terms_url is not None and source.retention_policy is not None
-    )
-    if eligible:
+    if source_is_publishable(source):
         return 0
     linked_events = db.scalars(
         select(Event).join(EventEvidence, EventEvidence.event_id == Event.id)
@@ -47,16 +45,7 @@ def _invalidate_unsupported_events(db: Session, source: Source, actor: str, issu
             select(func.count()).select_from(EventEvidence)
             .join(SourceDocument, EventEvidence.source_document_id == SourceDocument.id)
             .join(Source, SourceDocument.source_id == Source.id)
-            .where(
-                EventEvidence.event_id == event.id,
-                Source.active.is_(True),
-                Source.license_status.in_(APPROVED_LICENSE_STATUSES),
-                Source.terms_reviewed_at.is_not(None),
-                Source.terms_reviewed_by.is_not(None),
-                Source.license_terms_url.is_not(None),
-                Source.retention_policy.is_not(None),
-                SourceDocument.review_status == "approved",
-            )
+            .where(EventEvidence.event_id == event.id, *eligible_evidence_clauses())
         ) or 0
         if valid_count == 0:
             event.status = EventStatus.corrected
@@ -73,14 +62,7 @@ def _invalidate_unsupported_events(db: Session, source: Source, actor: str, issu
 @router.get("")
 def list_sources(limit: int = Query(default=100, ge=1, le=500), db: Session = Depends(get_db)):
     rows = db.scalars(
-        select(Source).where(
-            Source.active.is_(True),
-            Source.license_status.in_(APPROVED_LICENSE_STATUSES),
-            Source.terms_reviewed_at.is_not(None),
-            Source.terms_reviewed_by.is_not(None),
-            Source.license_terms_url.is_not(None),
-            Source.retention_policy.is_not(None),
-        ).order_by(Source.name.asc()).limit(limit)
+        select(Source).where(*publishable_source_clauses()).order_by(Source.name.asc()).limit(limit)
     ).all()
     return {"items": [_source_dict(source) for source in rows],
             "note": "Only active, reviewed sources are listed; a listed source may still have an unconfigured connector."}

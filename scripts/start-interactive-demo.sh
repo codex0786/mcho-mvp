@@ -28,7 +28,7 @@ fi
 
 if [[ ! -x "$WEB_DIR/node_modules/.bin/next" ]]; then
   echo "Installing MCHO frontend dependencies (first run only)... "
-  (cd "$WEB_DIR" && npm install --no-audit --no-fund)
+  (cd "$WEB_DIR" && npm ci --no-audit --no-fund)
 fi
 
 echo ""

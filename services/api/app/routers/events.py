@@ -8,11 +8,13 @@ from app.db.session import get_db
 from app.models.entities import (Event, EventEvidence, SourceDocument, Source, EventRevision, EventStatus, VerificationStatus, AuditLog, Claim, ReviewTask, ReviewDecision, utcnow)
 from app.schemas.events import EventOut, EventPage, CorrectionIn, EventDraftFromDocumentIn
 from app.core.security import Principal, require_publisher, require_roles
+from app.core.source_policy import source_is_publishable
 from app.core.review_policy import (
     ensure_independent_publisher, ensure_review_after_latest_revision, is_approval_decision,
 )
 
 router = APIRouter(prefix="", tags=["events"])
+MAP_FEATURE_LIMIT = 2000
 require_analyst = require_roles("analyst", "reviewer", "admin")
 
 
@@ -33,17 +35,9 @@ def create_event_draft_from_document(
             detail="Only individually approved source documents can be attached to an event draft.",
         )
     source = db.get(Source, document.source_id)
-    eligible_license_statuses = {"approved", "public_domain", "open_license", "licensed"}
     if source is None:
         raise HTTPException(status_code=409, detail="Source document references a missing source.")
-    if (
-        not source.active
-        or source.license_status not in eligible_license_statuses
-        or source.terms_reviewed_at is None
-        or not source.terms_reviewed_by
-        or not source.license_terms_url
-        or not source.retention_policy
-    ):
+    if not source_is_publishable(source):
         raise HTTPException(
             status_code=409,
             detail="Source must be active with reviewed use terms and a retention policy.",
@@ -225,14 +219,40 @@ def map_events(
         query = query.where(Event.verification_status == verification_status)
     # Render a representative point for mixed geometry types so MapLibre clustering remains valid.
     query = query.with_only_columns(Event, func.ST_AsGeoJSON(func.ST_PointOnSurface(Event.geometry)))
-    rows = db.execute(query.limit(2000)).all()
+    # Fetch one extra row so the response can say whether the view was truncated.
+    rows = db.execute(query.limit(MAP_FEATURE_LIMIT + 1)).all()
+    truncated = len(rows) > MAP_FEATURE_LIMIT
+    rows = rows[:MAP_FEATURE_LIMIT]
     features = []
     for event, geometry_json in rows:
         features.append({"type": "Feature", "id": str(event.id), "geometry": __import__("json").loads(geometry_json),
             "properties": {"event_id": str(event.id), "event_type": event.event_type,
                 "verification_status": event.verification_status.value, "event_start": event.event_start.isoformat() if event.event_start else None,
                 "confidence_label": event.confidence_label, "spatial_uncertainty_m": event.spatial_uncertainty_m}})
-    return {"type": "FeatureCollection", "features": features, "response_generated_at": datetime.now(timezone.utc).isoformat()}
+    return {"type": "FeatureCollection", "features": features, "truncated": truncated,
+            "feature_limit": MAP_FEATURE_LIMIT, "response_generated_at": datetime.now(timezone.utc).isoformat()}
+
+
+def revision_snapshot(event: Event, previous: dict | None = None) -> dict:
+    """State of the event *after* a change, so revision N always matches the stored event.
+
+    Fields this endpoint cannot change (coordinates, the originating document) are
+    carried over from the previous revision.
+    """
+    snapshot = dict(previous or {})
+    snapshot.update({
+        "event_type": event.event_type,
+        "summary": event.summary,
+        "event_start": event.event_start.isoformat() if event.event_start else None,
+        "event_end": event.event_end.isoformat() if event.event_end else None,
+        "country_code": event.country_code,
+        "spatial_uncertainty_m": event.spatial_uncertainty_m,
+        "status": getattr(event.status, "value", event.status),
+        "verification_status": getattr(event.verification_status, "value", event.verification_status),
+        "attribution_status": event.attribution_status,
+        "confidence_label": event.confidence_label,
+    })
+    return snapshot
 
 
 @router.post("/events/{event_id}/corrections", status_code=201)
@@ -242,41 +262,35 @@ def correct_event(
     reviewer: Principal = Depends(require_publisher),
     db: Session = Depends(get_db),
 ):
-    event = db.get(Event, event_id)
+    # Lock the event so concurrent corrections cannot claim the same revision number.
+    event = db.get(Event, event_id, with_for_update=True)
     if not event or event.is_synthetic:
         raise HTTPException(status_code=404, detail="Event not found.")
     if event.status == EventStatus.withdrawn:
         raise HTTPException(status_code=409, detail="Withdrawn events cannot be corrected through this endpoint.")
 
-    latest_number = db.scalar(
-        select(func.max(EventRevision.revision_number)).where(EventRevision.event_id == event_id)
-    ) or 0
-    if latest_number < 1:
-        raise HTTPException(status_code=409, detail="Event has no revision history to correct.")
-    snapshot = {
-        "event_type": event.event_type,
-        "summary": event.summary,
-        "verification_status": event.verification_status.value,
-        "status": event.status.value,
-        "event_start": event.event_start.isoformat() if event.event_start else None,
-        "event_end": event.event_end.isoformat() if event.event_end else None,
-        "country_code": event.country_code,
-        "confidence_label": event.confidence_label,
-        "spatial_uncertainty_m": event.spatial_uncertainty_m,
-    }
-    revision = EventRevision(
-        event_id=event.id,
-        revision_number=latest_number + 1,
-        snapshot=snapshot,
-        changed_by=reviewer.identity,
-        rationale=body.rationale,
+    previous_revision = db.scalar(
+        select(EventRevision).where(EventRevision.event_id == event_id)
+        .order_by(EventRevision.revision_number.desc()).limit(1)
     )
+    if previous_revision is None:
+        raise HTTPException(status_code=409, detail="Event has no revision history to correct.")
+    latest_number = previous_revision.revision_number
+
     if body.summary is not None:
         event.summary = body.summary.strip()
     # A correction must return to independent review; a publisher cannot self-assert
     # verified/provisional status in the correction payload.
     event.verification_status = VerificationStatus.unverified
     event.status = EventStatus.corrected
+    revision = EventRevision(
+        event_id=event.id,
+        revision_number=latest_number + 1,
+        snapshot=revision_snapshot(event, previous_revision.snapshot),
+        changed_by=reviewer.identity,
+        rationale=body.rationale,
+        changed_at=utcnow(),
+    )
     db.add(revision)
 
     active_task_id = db.scalar(
@@ -324,7 +338,8 @@ def publish_event(
     reviewer: Principal = Depends(require_publisher),
     db: Session = Depends(get_db),
 ):
-    event = db.get(Event, event_id)
+    # Lock the event so a concurrent decision or correction cannot interleave with the checks below.
+    event = db.get(Event, event_id, with_for_update=True)
     if not event or event.is_synthetic:
         raise HTTPException(status_code=404, detail="Event not found.")
     if event.status == EventStatus.published:
@@ -382,13 +397,9 @@ def publish_event(
     if event.verification_status not in {VerificationStatus.verified, VerificationStatus.provisional}:
         raise HTTPException(status_code=409, detail="Only verified or explicitly provisional events can be published.")
 
-    eligible_license_statuses = {"approved", "public_domain", "open_license", "licensed"}
     evidence_rows = db.execute(
-        select(
-            EventEvidence.id, Source.active, Source.license_status, Source.terms_reviewed_at,
-            Source.terms_reviewed_by, Source.license_terms_url, Source.retention_policy,
-            SourceDocument.review_status,
-        )
+        select(Source, SourceDocument.review_status)
+        .select_from(EventEvidence)
         .join(SourceDocument, EventEvidence.source_document_id == SourceDocument.id)
         .join(Source, SourceDocument.source_id == Source.id)
         .where(EventEvidence.event_id == event_id)
@@ -397,10 +408,8 @@ def publish_event(
     if evidence_count < 1:
         raise HTTPException(status_code=409, detail="At least one linked source record is required before publication.")
     eligible_evidence_count = sum(
-        1 for _, active, license_status, terms_reviewed_at, terms_reviewed_by,
-        license_terms_url, retention_policy, document_review_status in evidence_rows
-        if active and license_status in eligible_license_statuses and terms_reviewed_at is not None
-        and terms_reviewed_by and license_terms_url and retention_policy and document_review_status == "approved"
+        1 for source, document_review_status in evidence_rows
+        if source_is_publishable(source) and document_review_status == "approved"
     )
     if eligible_evidence_count < 1:
         raise HTTPException(

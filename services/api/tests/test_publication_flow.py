@@ -1,9 +1,12 @@
 from datetime import datetime, timedelta, timezone
 import os
+import threading
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from geoalchemy2.elements import WKTElement
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.security import Principal, require_publisher, require_reviewer
@@ -217,3 +220,119 @@ def test_publication_rejects_a_review_that_predates_latest_revision(publication_
     response = client.post(f"/api/v1/events/{candidate['event_id']}/publish")
     assert response.status_code == 409
     assert "after the latest event revision" in response.json()["detail"]
+
+
+def test_correction_revision_records_the_post_correction_state(publication_db):
+    client, connection = publication_db
+    candidate = _seed_candidate(connection)
+    publisher = _principal("publisher-03", "publisher")
+    corrected_summary = "Corrected: the reviewed source reports damage to two public facilities."
+
+    app.dependency_overrides[require_publisher] = lambda: publisher
+    response = client.post(
+        f"/api/v1/events/{candidate['event_id']}/corrections",
+        json={"rationale": "The source was updated with a second facility.", "summary": corrected_summary},
+    )
+    assert response.status_code == 201
+    assert response.json()["revision_number"] == 2
+
+    with Session(bind=connection, join_transaction_mode="create_savepoint") as db:
+        revisions = db.scalars(
+            select(EventRevision).where(EventRevision.event_id == candidate["event_id"])
+            .order_by(EventRevision.revision_number)
+        ).all()
+        event = db.get(Event, candidate["event_id"])
+    assert [revision.revision_number for revision in revisions] == [1, 2]
+    latest = revisions[-1].snapshot
+    assert latest["summary"] == corrected_summary == event.summary
+    assert latest["status"] == "corrected"
+    assert latest["verification_status"] == "unverified"
+    # Fields the correction cannot change are carried over from revision 1.
+    assert latest["country_code"] == "LB"
+
+
+def _delete_committed_candidate(event_id, task_id) -> None:
+    with engine.begin() as conn:
+        document_ids = [row[0] for row in conn.execute(
+            text("SELECT source_document_id FROM event_evidence WHERE event_id = :e"), {"e": event_id},
+        )]
+        source_ids = [row[0] for row in conn.execute(
+            text("SELECT source_id FROM source_documents WHERE id = ANY(:d)"), {"d": document_ids},
+        )]
+        conn.execute(text("DELETE FROM audit_log WHERE subject_id IN (:e, :t)"), {"e": str(event_id), "t": str(task_id)})
+        conn.execute(text("DELETE FROM review_decisions WHERE task_id = :t"), {"t": task_id})
+        conn.execute(text("DELETE FROM review_tasks WHERE subject_id = :e"), {"e": event_id})
+        conn.execute(text("DELETE FROM event_evidence WHERE event_id = :e"), {"e": event_id})
+        conn.execute(text("DELETE FROM event_revisions WHERE event_id = :e"), {"e": event_id})
+        conn.execute(text("DELETE FROM events WHERE id = :e"), {"e": event_id})
+        conn.execute(text("DELETE FROM source_documents WHERE id = ANY(:d)"), {"d": document_ids})
+        conn.execute(text("DELETE FROM sources WHERE id = ANY(:s)"), {"s": source_ids})
+
+
+def test_concurrent_review_decision_waits_for_task_lock_then_sees_closed_task():
+    """Without a row lock the second decision would succeed while the first is in flight."""
+    if os.getenv("MCHO_INTEGRATION_TESTS") != "1":
+        pytest.skip("Set MCHO_INTEGRATION_TESTS=1 to run PostgreSQL/PostGIS HTTP integration tests.")
+    seed_connection = engine.connect()
+    try:
+        candidate = _seed_candidate(seed_connection)
+        seed_connection.commit()
+    finally:
+        seed_connection.close()
+
+    previous_overrides = app.dependency_overrides.copy()
+    app.dependency_overrides[require_reviewer] = lambda: _principal("reviewer-02", "reviewer")
+    responses = []
+    lock_connection = engine.connect()
+    try:
+        lock_transaction = lock_connection.begin()
+        lock_connection.execute(
+            text("SELECT id FROM review_tasks WHERE id = :t FOR UPDATE"), {"t": candidate["task_id"]},
+        )
+        worker = threading.Thread(target=lambda: responses.append(TestClient(app).post(
+            f"/api/v1/reviews/tasks/{candidate['task_id']}/decisions",
+            json={"decision": "verify", "rationale": "Compared the source metadata and evidence."},
+        )))
+        worker.start()
+        worker.join(timeout=1.5)
+        assert worker.is_alive(), "decision did not wait for the review-task row lock"
+
+        # The competing transaction closes the task and releases the lock.
+        lock_connection.execute(
+            text("UPDATE review_tasks SET status = 'completed' WHERE id = :t"), {"t": candidate["task_id"]},
+        )
+        lock_transaction.commit()
+        worker.join(timeout=15)
+        assert not worker.is_alive()
+        assert responses[0].status_code == 409
+        assert "already closed" in responses[0].json()["detail"]
+    finally:
+        lock_connection.close()
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(previous_overrides)
+        _delete_committed_candidate(candidate["event_id"], candidate["task_id"])
+
+
+def test_map_reports_truncation_when_features_exceed_the_limit(publication_db, monkeypatch):
+    client, connection = publication_db
+    with Session(bind=connection, join_transaction_mode="create_savepoint") as db:
+        for offset in (0.0, 0.1):
+            db.add(Event(
+                event_type="displacement", summary="Published fixture for map truncation test.",
+                status=EventStatus.published, verification_status=VerificationStatus.verified,
+                is_synthetic=False, spatial_uncertainty_m=1000,
+                geometry=WKTElement(f"POINT({-170.5 + offset} -80.5)", srid=4326),
+            ))
+        db.commit()
+    bbox = "west=-171&south=-81&east=-170&north=-80"
+
+    monkeypatch.setattr("app.routers.events.MAP_FEATURE_LIMIT", 1)
+    truncated = client.get(f"/api/v1/map/events?{bbox}").json()
+    assert len(truncated["features"]) == 1
+    assert truncated["truncated"] is True
+    assert truncated["feature_limit"] == 1
+
+    monkeypatch.setattr("app.routers.events.MAP_FEATURE_LIMIT", 10)
+    complete = client.get(f"/api/v1/map/events?{bbox}").json()
+    assert len(complete["features"]) == 2
+    assert complete["truncated"] is False

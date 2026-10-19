@@ -5,7 +5,10 @@ import maplibregl, { Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 type EventFeature = { type: "Feature"; id: string; geometry: GeoJSON.Geometry; properties: Record<string, unknown> };
-type EventCollection = { type: "FeatureCollection"; features: EventFeature[]; response_generated_at?: string };
+type EventCollection = {
+  type: "FeatureCollection"; features: EventFeature[]; response_generated_at?: string;
+  truncated?: boolean; feature_limit?: number;
+};
 const API = process.env.NEXT_PUBLIC_API_BASE_URL ||
   (process.env.NODE_ENV === "development" ? "http://localhost:8000/api/v1" : "/api/backend/api/v1");
 const STYLE = process.env.NEXT_PUBLIC_MAP_STYLE_URL || "";
@@ -115,7 +118,10 @@ export default function RegionalMap() {
       const source = instance.getSource("events") as maplibregl.GeoJSONSource | undefined;
       source?.setData(data as GeoJSON.FeatureCollection);
       setEvents(data.features || []);
-      setStatus(`${data.features.length} published map features · API data timestamp ${data.response_generated_at || "not supplied"}`);
+      const count = data.truncated
+        ? `Showing the first ${data.features.length} published map features (limit ${data.feature_limit ?? data.features.length}); zoom in or narrow the dates to see all`
+        : `${data.features.length} published map features`;
+      setStatus(`${count} · API data timestamp ${data.response_generated_at || "not supplied"}`);
       renderEventList(data.features);
     } catch (err) {
       setStatus(`Map data unavailable: ${err instanceof Error ? err.message : "unknown error"}. No live data is inferred.`);

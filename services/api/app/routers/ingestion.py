@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import Principal, require_roles
+from app.core.ingestion_runs import expire_stale_runs
+from app.core.source_policy import source_is_publishable
 from app.db.session import get_db
 from app.models.entities import AuditLog, IngestionError, IngestionRun, Source, SourceCheckpoint, SourceDocument, SourceRecord, utcnow
 from app.schemas.sources import APPROVED_LICENSE_STATUSES
@@ -73,10 +75,10 @@ def queue_source_run(
             status_code=409,
             detail="ReliefWeb adapter configuration is incomplete in the API environment. Set RELIEFWEB_APPNAME and RELIEFWEB_COUNTRIES in both API and worker services.",
         )
-    if (not source.active or source.license_status not in APPROVED_LICENSE_STATUSES
-            or not source.terms_reviewed_at or not source.terms_reviewed_by
-            or not source.license_terms_url or not source.retention_policy):
+    if not source_is_publishable(source):
         raise HTTPException(status_code=409, detail="Source is inactive or terms/retention policy are not reviewed.")
+    expire_stale_runs(db, source.id)
+    db.flush()
     active_run = db.scalar(
         select(IngestionRun.id).where(
             IngestionRun.source_id == source.id,

@@ -373,3 +373,47 @@ def test_observation_endpoints_require_staff_role(path):
         assert TestClient(app).get(path).status_code == 403
     finally:
         app.dependency_overrides.clear()
+
+
+def test_revision_snapshot_reflects_post_change_state_and_carries_unchangeable_fields():
+    from app.models.entities import EventStatus, VerificationStatus
+    from app.routers.events import revision_snapshot
+
+    event = SimpleNamespace(
+        event_type="displacement", summary="Updated summary after correction.",
+        event_start=datetime(2026, 10, 1, tzinfo=timezone.utc), event_end=None,
+        country_code="SY", spatial_uncertainty_m=5000,
+        status=EventStatus.corrected, verification_status=VerificationStatus.unverified,
+        attribution_status="unknown", confidence_label="unassessed",
+    )
+    previous = {"summary": "Original summary.", "latitude": 35.1, "longitude": 36.7,
+                "source_document_id": "doc-1", "status": "published"}
+    snapshot = revision_snapshot(event, previous)
+    assert snapshot["summary"] == "Updated summary after correction."
+    assert snapshot["status"] == "corrected"
+    assert snapshot["verification_status"] == "unverified"
+    assert snapshot["event_start"] == "2026-10-01T00:00:00+00:00"
+    assert (snapshot["latitude"], snapshot["longitude"], snapshot["source_document_id"]) == (35.1, 36.7, "doc-1")
+    assert previous["summary"] == "Original summary."  # caller's snapshot is not mutated
+
+
+def test_unhandled_errors_return_json_with_request_id():
+    from fastapi.testclient import TestClient
+    from app.db.session import get_db
+    from app.main import app
+
+    def broken_db():
+        raise RuntimeError("could not connect to server: secret-host:5432")
+        yield  # pragma: no cover
+
+    app.dependency_overrides[get_db] = broken_db
+    try:
+        response = TestClient(app, raise_server_exceptions=False).get(
+            "/api/v1/events", headers={"X-Request-ID": "trace-abc.123"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Internal server error.", "request_id": "trace-abc.123"}
+    assert response.headers["X-Request-ID"] == "trace-abc.123"
+    assert "secret-host" not in response.text

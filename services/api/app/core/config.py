@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     reliefweb_max_pages: int = 3
     reliefweb_page_size: int = 100
     reliefweb_overlap_hours: int = 24
+    # Active ingestion runs older than this are treated as abandoned (worker crash).
+    ingestion_stale_run_minutes: int = 60
     cors_origins: str = "http://localhost:3000"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

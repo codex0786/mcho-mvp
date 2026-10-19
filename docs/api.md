@@ -12,7 +12,7 @@ OpenAPI docs are served at `/docs`.
 - `POST /api/v1/events/drafts/from-document/{document_id}` (analyst/reviewer/admin OIDC role; source document must be individually approved and its source active with reviewed terms)
 - `GET /api/v1/events/{event_id}`
 - `GET /api/v1/events/{event_id}/evidence`
-- `GET /api/v1/map/events?west=...&south=...&east=...&north=...`
+- `GET /api/v1/map/events?west=...&south=...&east=...&north=...` (returns at most `feature_limit` features; `truncated: true` means the view held more)
 - `GET /api/v1/imagery/scenes` (analyst/reviewer/publisher/admin OIDC role; restricted until observations have publication and provenance gates)
 - `GET /api/v1/maritime/aggregates` (analyst/reviewer/publisher/admin OIDC role; restricted until observations have publication and provenance gates)
 - `GET /api/v1/humanitarian/indicators` (analyst/reviewer/publisher/admin OIDC role; restricted until observations have publication and provenance gates)
@@ -40,3 +40,7 @@ The admin-only source panel in `/analyst` supports source registration, review a
 
 
 Readiness now requires PostgreSQL, PostGIS and Redis. Liveness is intentionally process-only. API request logs include a validated request ID, route path, HTTP status and duration but omit query strings, request bodies, cookies and authorization tokens.
+
+## Errors
+
+Handled errors return `{"detail": ...}` with an HTTP status. Unhandled server errors return `500` with `{"detail": "Internal server error.", "request_id": "..."}`; every response carries an `X-Request-ID` header for log correlation (a valid caller-supplied `X-Request-ID` is echoed). Exception text is never returned.

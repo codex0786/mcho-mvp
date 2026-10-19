@@ -1,7 +1,6 @@
 import os
-import httpx
 from celery import Celery
-from mcho_workers.ingestion import execute_ingestion
+from mcho_workers.ingestion import TransientProviderError, execute_ingestion
 
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 app = Celery("mcho_workers", broker=redis_url, backend=redis_url)
@@ -26,7 +25,8 @@ def health_check() -> dict[str, str]:
 @app.task(
     bind=True,
     name="mcho.ingest_source",
-    autoretry_for=(httpx.HTTPError,),
+    # Only transient provider failures are retried; 4xx rejections fail the run immediately.
+    autoretry_for=(TransientProviderError,),
     retry_backoff=True,
     retry_backoff_max=300,
     retry_jitter=True,

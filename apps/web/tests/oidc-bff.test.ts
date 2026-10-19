@@ -32,7 +32,7 @@ async function readRequestBody(req: import("node:http").IncomingMessage): Promis
 }
 
 before(async () => {
-  process.env.NODE_ENV = "test";
+  Reflect.set(process.env, "NODE_ENV", "test");
   const keyPair = await generateKeyPair("RS256");
   privateKey = keyPair.privateKey as CryptoKey;
   jwk = { ...await exportJWK(keyPair.publicKey), kid: "mcho-test-key", use: "sig", alg: "RS256", key_ops: ["verify"] };

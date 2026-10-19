@@ -55,6 +55,8 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
     const responseHeaders = new Headers();
     const contentType = upstream.headers.get("content-type");
     if (contentType) responseHeaders.set("content-type", contentType);
+    const requestId = upstream.headers.get("x-request-id");
+    if (requestId) responseHeaders.set("x-request-id", requestId);
     responseHeaders.set("cache-control", "no-store");
     return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
   } catch {

@@ -605,7 +605,7 @@ export default function AnalystWorkspace() {
                         <div className="draft-form">
                           <label>Reason for review decision
                             <textarea
-                              minLength={10}
+                              minLength={15}
                               maxLength={5000}
                               rows={2}
                               required

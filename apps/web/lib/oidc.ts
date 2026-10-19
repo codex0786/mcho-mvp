@@ -68,7 +68,7 @@ export function createOidcUserManager(config: RuntimePublicConfig): UserManager 
     monitorSession: false,
     loadUserInfo: false,
     filterProtocolClaims: true,
-    ...(config.oidcResource ? { resource: config.oidcResource } : {}),
+    extraQueryParams: config.oidcResource ? { resource: config.oidcResource } : undefined,
   };
   return new UserManager(settings);
 }

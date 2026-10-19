@@ -20,6 +20,10 @@ An evidence-first geospatial observatory starter. It is designed to connect date
 - Next.js + TypeScript + MapLibre GL JS
 - Docker Compose for local development
 
+## Phase 8: admin source registry and manual ingestion
+
+The admin-only panel provides source registration, terms/retention updates, terms approval, activation/deactivation, manual ReliefWeb run queueing, and run summaries. It displays API-side provider setup status without exposing the app-name value. Hosted ReliefWeb configuration requires matching `RELIEFWEB_APPNAME` and `RELIEFWEB_COUNTRIES` in both API and worker services; feeds remain disabled by default. See [the source-admin runbook](./docs/phase-8-source-admin.md).
+
 ## Phase 6: reviewer queue and separate publication
 
 The `/analyst` workspace now includes the OIDC-protected review queue. Reviewers/admins can record a reasoned decision on source documents or event claims. Publishers/admins can use a separate publish action on eligible completed event tasks; the API always re-checks evidence and high-impact rules. See [review queue API details](./docs/api.md).

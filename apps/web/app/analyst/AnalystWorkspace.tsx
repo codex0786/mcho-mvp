@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import AdminSourcesPanel from "./AdminSourcesPanel";
 import type { User } from "oidc-client-ts";
 import {
   apiRequest,
@@ -656,6 +657,7 @@ export default function AnalystWorkspace() {
               )}
             </section>
           )}
+          {roles.includes("admin") && <AdminSourcesPanel accessToken={accessToken} />}
         </>
       )}
       <footer>Analyst tools are gated by API-verified OIDC roles. Data shown here is source metadata and analyst-authored drafts; publication remains a separate audited action.</footer>

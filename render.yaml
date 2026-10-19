@@ -45,6 +45,10 @@ services:
         value: roles
       - key: OIDC_ALGORITHMS
         value: RS256
+      - key: RELIEFWEB_APPNAME
+        sync: false
+      - key: RELIEFWEB_COUNTRIES
+        sync: false
 
   - type: worker
     name: mcho-worker

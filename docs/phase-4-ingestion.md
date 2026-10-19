@@ -19,6 +19,7 @@
 | PATCH /api/v1/sources/{id} | admin | Update terms/use review or activate |
 | GET /api/v1/sources/admin | admin | Inspect full source registry |
 | POST /api/v1/ingestion/sources/{id}/runs | admin | Queue a manual run |
+| GET /api/v1/ingestion/configuration | admin | Inspect safe API-side provider configuration |
 | GET /api/v1/ingestion/runs | admin | Inspect runs and checkpoints |
 | GET /api/v1/ingestion/runs/{id}/errors | admin | Inspect sanitized row errors |
 | GET /api/v1/ingestion/documents | analyst/reviewer/publisher/admin | Browse metadata and review status |
@@ -46,3 +47,6 @@ The request explicitly selects title, canonical URL, created/changed/original da
 - [ ] Worker/API/web Docker builds and frontend production build pass.
 - [ ] A staging ingestion run is possible only after an administrator completes source/provider configuration.
 - [ ] Every created document has a provenance URL/hash, review status and review task.
+
+
+Before queueing a ReliefWeb run, the API rejects incomplete `RELIEFWEB_APPNAME` / `RELIEFWEB_COUNTRIES` configuration. These values must match in API and worker environments. The admin configuration endpoint does not expose the app-name value and cannot prove the worker environment matches or that the provider accepts the app name.

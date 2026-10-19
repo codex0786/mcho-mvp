@@ -17,6 +17,28 @@ require_document_reader = require_roles("analyst", "reviewer", "publisher", "adm
 dispatcher = Celery("mcho_api_dispatch", broker=settings.redis_url)
 
 
+@router.get("/configuration")
+def ingestion_configuration(
+    principal: Principal = Depends(require_admin),
+):
+    """Return safe configuration status, not provider credentials or live-source claims."""
+    country_scope = [item.strip() for item in settings.reliefweb_countries.split(",") if item.strip()]
+    appname_configured = bool(settings.reliefweb_appname.strip())
+    return {
+        "provider": "reliefweb_reports",
+        "configured_in_api_environment": bool(appname_configured and country_scope),
+        "appname_configured": appname_configured,
+        "country_scope": country_scope,
+        "limits": {
+            "initial_lookback_days": settings.reliefweb_initial_lookback_days,
+            "max_pages": settings.reliefweb_max_pages,
+            "page_size": settings.reliefweb_page_size,
+            "overlap_hours": settings.reliefweb_overlap_hours,
+        },
+        "note": "This is API-side configuration only, not a live connectivity test. Match RELIEFWEB_APPNAME and RELIEFWEB_COUNTRIES in the worker environment before queueing runs.",
+    }
+
+
 def _run_dict(run: IngestionRun) -> dict:
     return {
         "id": str(run.id), "source_id": str(run.source_id), "task_id": run.task_id,
@@ -43,6 +65,13 @@ def queue_source_run(
         raise HTTPException(status_code=404, detail="Source not found.")
     if source.source_type != "reliefweb_reports":
         raise HTTPException(status_code=409, detail="No ingestion adapter is implemented for this source type.")
+    if not settings.reliefweb_appname.strip() or not any(
+        item.strip() for item in settings.reliefweb_countries.split(",")
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="ReliefWeb adapter configuration is incomplete in the API environment. Set RELIEFWEB_APPNAME and RELIEFWEB_COUNTRIES in both API and worker services.",
+        )
     if (not source.active or source.license_status not in APPROVED_LICENSE_STATUSES
             or not source.terms_reviewed_at or not source.terms_reviewed_by
             or not source.license_terms_url or not source.retention_policy):

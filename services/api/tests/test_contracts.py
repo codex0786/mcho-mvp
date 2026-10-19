@@ -15,6 +15,7 @@ from app.core.review_policy import apply_review_decision
 from app.core.security import Principal, get_current_principal, require_reviewer, require_publisher
 from app.schemas.events import CorrectionIn, EventOut, ReviewDecisionIn, EventDraftFromDocumentIn
 from app.schemas.sources import SourceCreateIn, SourcePatchIn
+from app.routers.ingestion import ingestion_configuration
 
 
 def test_review_decision_accepts_only_known_values():
@@ -234,3 +235,38 @@ def test_event_draft_rejects_invalid_country_codes_and_event_taxonomy():
             summary="A reviewed source reports damage to a public building.",
             rationale="Event taxonomy is a controlled classification.",
         )
+
+
+
+def test_reliefweb_api_configuration_is_safe_and_explicit(monkeypatch):
+    monkeypatch.setattr(settings, "reliefweb_appname", "test-app-name")
+    monkeypatch.setattr(settings, "reliefweb_countries", "Lebanon, Syria")
+    monkeypatch.setattr(settings, "reliefweb_initial_lookback_days", 7)
+    monkeypatch.setattr(settings, "reliefweb_max_pages", 3)
+    monkeypatch.setattr(settings, "reliefweb_page_size", 100)
+    monkeypatch.setattr(settings, "reliefweb_overlap_hours", 24)
+    admin = Principal(
+        subject="admin-1",
+        issuer="https://issuer.example.test/",
+        roles=frozenset({"admin"}),
+    )
+    result = ingestion_configuration(principal=admin)
+    assert result["configured_in_api_environment"] is True
+    assert result["country_scope"] == ["Lebanon", "Syria"]
+    assert result["limits"]["page_size"] == 100
+    assert "appname_value" not in result
+    assert "test-app-name" not in str(result)
+
+
+def test_reliefweb_api_configuration_is_disabled_when_provider_settings_missing(monkeypatch):
+    monkeypatch.setattr(settings, "reliefweb_appname", "")
+    monkeypatch.setattr(settings, "reliefweb_countries", "")
+    admin = Principal(
+        subject="admin-1",
+        issuer="https://issuer.example.test/",
+        roles=frozenset({"admin"}),
+    )
+    result = ingestion_configuration(principal=admin)
+    assert result["configured_in_api_environment"] is False
+    assert result["appname_configured"] is False
+    assert result["country_scope"] == []

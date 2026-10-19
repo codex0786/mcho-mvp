@@ -30,6 +30,16 @@ bash scripts/start-interactive-demo.sh
 
 Then open <http://127.0.0.1:3000/demo>. The launcher installs frontend dependencies if needed and starts only Next.js. It does not require a `.env` file, Docker, PostgreSQL/PostGIS, Redis, the API worker, OIDC configuration, a map style or live provider access. All data on this route are synthetic demo fixtures. Stop the server with `Ctrl+C`; optionally choose a port using `MCHO_DEMO_PORT=3001 bash scripts/start-interactive-demo.sh`. See [the local preview guide](./docs/phase-15-one-command-demo.md).
 
+## Optional full local stack
+
+When you need to test the API, PostGIS, Redis and worker together, use Docker Desktop and run:
+
+```bash
+bash scripts/start-local-stack.sh
+```
+
+The script creates a local `.env` with a generated database password only when no `.env` exists, starts and migrates the services, seeds unpublished synthetic fixtures, waits for readiness and runs the smoke tests. Web/API ports bind to `127.0.0.1` only; PostgreSQL and Redis are not published to the host. Stop services with `docker compose down` (this preserves volumes). See [the full-stack local guide](./docs/phase-16-full-stack-local.md). This is local development only; live sources and OIDC remain unconfigured by default.
+
 ## Phase 9: operational readiness
 
 The API now separates liveness from readiness (PostgreSQL + PostGIS + Redis), returns per-dependency failure states, and logs request IDs/status/latency without logging tokens or bodies. The admin console includes source run/checkpoint timestamps. See [operations guide](./docs/phase-9-operations.md), [backup/restore](./docs/runbooks/backup-restore.md) and [incident response](./docs/runbooks/incident-response.md). Backup policies and alert routing still require environment-level configuration and drills.

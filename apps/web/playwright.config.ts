@@ -1,6 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const baseURL = "http://127.0.0.1:3000";
+// PLAYWRIGHT_PORT lets local runs avoid a port another app already uses.
+const port = Number(process.env.PLAYWRIGHT_PORT ?? 3000);
+const baseURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   testDir: "./tests",
@@ -26,7 +28,7 @@ export default defineConfig({
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
   ],
   webServer: {
-    command: "npm run start -- --hostname 127.0.0.1",
+    command: `npm run start -- --hostname 127.0.0.1 --port ${port}`,
     url: `${baseURL}/demo`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

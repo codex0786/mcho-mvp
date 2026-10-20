@@ -16,7 +16,9 @@ const STYLE = process.env.NEXT_PUBLIC_MAP_STYLE_URL || "";
 export default function RegionalMap() {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
-  const [status, setStatus] = useState("Waiting for map style configuration.");
+  const [status, setStatus] = useState("Loading map configuration…");
+  // Tracked separately so a data status is not overwritten while tiles are still arriving.
+  const [basemapLoading, setBasemapLoading] = useState(false);
   const [events, setEvents] = useState<EventFeature[]>([]);
 
   useEffect(() => {
@@ -44,6 +46,8 @@ export default function RegionalMap() {
         return;
       }
 
+      setStatus("Loading basemap…");
+      setBasemapLoading(true);
       instance = new maplibregl.Map({
         container: container.current,
         style: styleUrl,
@@ -51,8 +55,19 @@ export default function RegionalMap() {
         zoom: 3.2,
       });
       instance.addControl(new maplibregl.NavigationControl(), "top-right");
-      instance.on("load", () => {
+      let styleReady = false;
+      // "load" waits for every initial tile; it only marks the basemap as complete.
+      instance.once("load", () => { if (!cancelled) setBasemapLoading(false); });
+      instance.on("error", () => {
+        if (cancelled || styleReady) return;
+        setBasemapLoading(false);
+        setStatus("The basemap style could not be loaded. Check MCHO_MAP_STYLE_URL; no event data is inferred.");
+      });
+      // The event layers only need the style, so published records are requested
+      // as soon as it is parsed rather than after all basemap tiles have arrived.
+      instance.once("style.load", () => {
         if (!instance || cancelled) return;
+        styleReady = true;
         instance.addSource("events", {
           type: "geojson",
           data: { type: "FeatureCollection", features: [] },
@@ -69,7 +84,7 @@ export default function RegionalMap() {
           filter: ["!", ["has", "point_count"]],
           paint: { "circle-radius": 7, "circle-stroke-width": 1.5 },
         });
-        setStatus("Map loaded. Loading published event records…");
+        setStatus("Loading published event records…");
         void refresh(instance);
       });
       instance.on("click", "event-points", (e) => {
@@ -141,7 +156,7 @@ export default function RegionalMap() {
     }
   }
 
-  return <div className="map-wrap"><div ref={container} className="map-canvas" aria-label="Interactive regional map"/><div className="map-status" role="status">{status}</div></div>;
+  return <div className="map-wrap"><div ref={container} className="map-canvas" aria-label="Interactive regional map"/><div className="map-status" role="status">{status}{basemapLoading && status !== "Loading basemap…" ? " · Basemap tiles still loading…" : ""}</div></div>;
 }
 
 function escapeHtml(value: string): string {

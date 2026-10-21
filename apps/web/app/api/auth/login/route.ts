@@ -28,6 +28,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     authorize.searchParams.set("code_challenge", challenge);
     authorize.searchParams.set("code_challenge_method", "S256");
     if (config.resource) authorize.searchParams.set("resource", config.resource);
+    if (config.audience) authorize.searchParams.set("audience", config.audience);
 
     const response = NextResponse.redirect(authorize, 302);
     const secure = new URL(config.webOrigin).protocol === "https:";

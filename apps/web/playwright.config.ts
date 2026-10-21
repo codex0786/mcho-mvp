@@ -10,7 +10,9 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // One worker everywhere: tests that hold mocked requests open can stall
+  // parallel-worker teardown, and the whole suite takes about 20 s serially.
+  workers: 1,
   globalTimeout: 10 * 60 * 1000,
   timeout: 30 * 1000,
   expect: { timeout: 7_500 },

@@ -13,6 +13,8 @@ export type ServerOidcConfig = {
   authority: string;
   clientId: string;
   resource: string;
+  // Auth0 issues a JWT access token for an API only when `audience` is sent.
+  audience: string;
   webOrigin: string;
 };
 
@@ -39,6 +41,7 @@ export function getServerOidcConfig(request: NextRequest): ServerOidcConfig {
   const authority = (process.env.MCHO_OIDC_AUTHORITY ?? "").trim().replace(/\/$/, "");
   const clientId = (process.env.MCHO_OIDC_CLIENT_ID ?? "").trim();
   const resource = (process.env.MCHO_OIDC_RESOURCE ?? "").trim();
+  const audience = (process.env.MCHO_OIDC_AUDIENCE ?? "").trim();
   const configuredOrigin = (process.env.MCHO_WEB_ORIGIN?.trim() || process.env.RENDER_EXTERNAL_URL?.trim() || "");
   const webOrigin = configuredOrigin || (process.env.NODE_ENV === "production" ? "" : request.nextUrl.origin);
 
@@ -64,7 +67,7 @@ export function getServerOidcConfig(request: NextRequest): ServerOidcConfig {
   if (process.env.NODE_ENV === "production" && parsedOrigin.protocol !== "https:" && !localWebOrigin) {
     throw new Error("MCHO_WEB_ORIGIN must use HTTPS in production (except local Compose on localhost).");
   }
-  return { authority, clientId, resource, webOrigin: parsedOrigin.origin };
+  return { authority, clientId, resource, audience, webOrigin: parsedOrigin.origin };
 }
 
 export async function getOidcMetadata(authority: string): Promise<OidcMetadata> {

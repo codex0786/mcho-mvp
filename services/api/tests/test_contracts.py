@@ -417,3 +417,24 @@ def test_unhandled_errors_return_json_with_request_id():
     assert response.json() == {"detail": "Internal server error.", "request_id": "trace-abc.123"}
     assert response.headers["X-Request-ID"] == "trace-abc.123"
     assert "secret-host" not in response.text
+
+
+def test_auth0_shaped_access_token_is_accepted_with_namespaced_roles(monkeypatch):
+    """Auth0: issuer has a trailing slash, aud is a list, roles come from an Action claim."""
+    private_key, public_key = _rsa_pair()
+    _configure_oidc(monkeypatch, public_key)
+    monkeypatch.setattr(settings, "oidc_issuer", "https://mcho-dev.us.auth0.com/")
+    monkeypatch.setattr(settings, "oidc_audience", "https://api.mcho.example")
+    monkeypatch.setattr(settings, "oidc_role_claim", "https://mcho.app/roles")
+    now = datetime.now(timezone.utc)
+    token = jwt.encode({
+        "iss": "https://mcho-dev.us.auth0.com/", "sub": "auth0|abc123",
+        "aud": ["https://api.mcho.example", "https://mcho-dev.us.auth0.com/userinfo"],
+        "iat": int(now.timestamp()), "exp": int((now + timedelta(minutes=5)).timestamp()),
+        "scope": "openid profile email", "https://mcho.app/roles": ["reviewer"],
+    }, private_key, algorithm="RS256", headers={"kid": "auth0-key"})
+
+    principal = get_current_principal(authorization=f"Bearer {token}")
+    assert principal.subject == "auth0|abc123"
+    assert principal.roles == frozenset({"reviewer"})
+    assert require_reviewer(principal=principal) == principal

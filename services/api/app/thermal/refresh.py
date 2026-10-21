@@ -105,6 +105,12 @@ def _requests(db: Session, now: datetime) -> list[tuple[str, int, object]]:
 def refresh_thermal(db: Session, client: httpx.Client, now: datetime | None = None) -> ThermalRefresh | None:
     """Run one refresh if due. Returns the refresh record, or None if not claimed."""
     now = now or utcnow()
+    wall_start = utcnow()
+
+    def finished() -> datetime:
+        # Stay on the caller's clock (``now``) so freshness checks compare like with like.
+        return now + (utcnow() - wall_start)
+
     refresh = _claim(db, now)
     if refresh is None:
         return None
@@ -131,7 +137,7 @@ def refresh_thermal(db: Session, client: httpx.Client, now: datetime | None = No
         refresh.rows_received = received
         refresh.rows_stored = stored
         refresh.error_summary = f"{rejected} malformed rows withheld." if rejected else None
-        refresh.finished_at = utcnow()
+        refresh.finished_at = finished()
         db.commit()
         logger.info("thermal_refresh_succeeded received=%s stored=%s rejected=%s", received, stored, rejected)
     except Exception as exc:  # recorded and re-raised for the caller's logs
@@ -139,7 +145,7 @@ def refresh_thermal(db: Session, client: httpx.Client, now: datetime | None = No
         refresh = db.merge(refresh)
         refresh.status = "failed"
         refresh.error_summary = str(exc) if isinstance(exc, FirmsError) else f"{type(exc).__name__}: refresh stopped."
-        refresh.finished_at = utcnow()
+        refresh.finished_at = finished()
         db.commit()
         logger.warning("thermal_refresh_failed error_type=%s summary=%s", type(exc).__name__, refresh.error_summary)
         if not isinstance(exc, FirmsError):

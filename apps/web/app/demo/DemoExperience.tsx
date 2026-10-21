@@ -383,9 +383,9 @@ export default function DemoExperience() {
       <header className="mcho-topbar">
         <a className="mcho-brand" href="/" aria-label="Back to the MCHO application home">
           <span className="mcho-brand-mark">M</span>
-          <span><span className="mcho-eyebrow">Evidence-first regional monitoring</span><strong>MENA Conflict & Humanitarian Observatory</strong></span>
+          <span><span className="mcho-eyebrow">Evidence-first regional monitoring</span><h1 className="mcho-title">MENA Conflict & Humanitarian Observatory</h1></span>
         </a>
-        <div className="mcho-top-actions"><span className="mcho-mode-chip"><i /> Prototype mode</span><span className="mcho-version-chip">UI preview · v0.2</span><a href="/" className="mcho-back-link">Back to application ↗</a></div>
+        <div className="mcho-top-actions"><span className="mcho-mode-chip"><i /> Design preview · sample data</span><span className="mcho-version-chip">UI preview · v0.2</span><a href="/" className="mcho-back-link">Go to the live satellite map ↗</a></div>
       </header>
 
       <section className="mcho-demo-warning" role="note">

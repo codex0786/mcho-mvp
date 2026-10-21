@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-for (const path of ["/", "/demo", "/analyst"]) {
+for (const path of ["/", "/demo", "/analyst", "/about"]) {
   test(`${path} sends security headers`, async ({ request }) => {
     const response = await request.get(path);
     expect(response.status()).toBe(200);
@@ -26,7 +26,7 @@ for (const path of ["/", "/demo", "/analyst"]) {
     });
     await page.goto(path);
     await page.waitForLoadState("networkidle");
-    await expect(page.getByText(/MENA Conflict |Analyst workspace|Source review/).first()).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
     expect(violations).toEqual([]);
   });
 }

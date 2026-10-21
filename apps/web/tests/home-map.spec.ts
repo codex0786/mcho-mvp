@@ -41,7 +41,37 @@ const THERMAL_INSIGHTS = {
   freshness: FRESHNESS,
 };
 
+const COUNTRIES = {
+  items: [
+    { iso_a3: "IRQ", iso_a2: "IQ", name: "Iraq", bbox: [38.8, 29.1, 48.6, 37.4] },
+    { iso_a3: "SDN", iso_a2: "SD", name: "Sudan", bbox: [21.8, 8.7, 38.6, 22.2] },
+  ],
+};
+
+function trendFor(iso3: string, name: string) {
+  const today = new Date();
+  const series = Array.from({ length: 22 }, (_, i) => {
+    const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - (21 - i)));
+    const covered = i >= 8;
+    return {
+      date: d.toISOString().slice(0, 10), covered, partial: i === 21,
+      total: covered ? 40 + i : null, persistent: covered ? 10 : null, other: covered ? 30 + i : null, max_frp_mw: covered ? 12 : null,
+    };
+  });
+  return {
+    iso_a3: iso3, name, days: 21, series, generated_at: NOW,
+    persistent_rule: "Sites with heat on at least 4 of the 7 days before the last 24 hours, applied to every day.",
+    coverage_note: "Days before data collection began show no counts: missing data is not zero. Today is incomplete.",
+    caveats: "Not a verified event.", freshness: FRESHNESS,
+  };
+}
+
 async function mockThermal(page: Page, configured = true) {
+  await page.route("**/thermal/countries", (route) => route.fulfill({ json: COUNTRIES }));
+  await page.route("**/thermal/countries/*/trend**", (route) => {
+    const iso3 = new URL(route.request().url()).pathname.split("/").at(-2) ?? "SDN";
+    return route.fulfill({ json: trendFor(iso3, iso3 === "SDN" ? "Sudan" : "Iraq") });
+  });
   const freshness = configured ? FRESHNESS : { ...FRESHNESS, configured: false, last_successful_refresh_at: null, last_attempt: null };
   await page.route("**/thermal/detections**", (route) => route.fulfill({
     json: configured ? THERMAL_DETECTIONS : { ...THERMAL_DETECTIONS, features: [], freshness },
@@ -159,4 +189,52 @@ test("explains when the satellite feed is not configured", async ({ page }) => {
     .toContainText("not configured on the server yet", { timeout: 15_000 });
   await expect(page.getByRole("status").filter({ hasText: /Satellite heat detections:/ }))
     .toContainText("NASA FIRMS feed is not configured");
+});
+
+test("country and time filters drive the map, insights and trend, and are kept in the URL", async ({ page }) => {
+  await mockRuntime(page, "slow-tiles");
+  const requests: string[] = [];
+  page.on("request", (request) => { if (request.url().includes("/thermal/")) requests.push(request.url()); });
+  await page.goto("/");
+  await expect(page.getByRole("status").filter({ hasText: /Satellite heat detections in view/ })).toBeVisible({ timeout: 15_000 });
+
+  await page.getByLabel("Time window").selectOption("72");
+  await page.getByLabel("Country").selectOption("SDN");
+  await expect(page).toHaveURL(/country=SDN/);
+  await expect(page).toHaveURL(/hours=72/);
+  await expect(page.getByRole("heading", { name: "Sudan", exact: true })).toBeVisible();
+
+  const trend = page.getByRole("region", { name: "Sudan 3-week trend" });
+  await expect(trend).toBeVisible({ timeout: 15_000 });
+  await expect(trend).toContainText("Seasonal context");
+  await expect(trend.getByRole("img", { name: /Daily satellite heat detections in Sudan/ })).toBeVisible();
+  await expect.poll(() => requests.some((u) => u.includes("/thermal/detections") && u.includes("hours=72") && u.includes("country=SDN"))).toBe(true);
+  await expect.poll(() => requests.some((u) => u.includes("/thermal/insights") && u.includes("country=SDN"))).toBe(true);
+
+  await trend.getByRole("button", { name: "Back to all countries" }).click();
+  await expect(page).not.toHaveURL(/country=/);
+  await expect(page.getByRole("region", { name: /3-week trend/ })).toHaveCount(0);
+});
+
+test("opens a shared link with its country and time window", async ({ page }) => {
+  await mockRuntime(page, "slow-tiles");
+  await page.goto("/?country=IRQ&hours=6");
+  await expect(page.getByLabel("Country")).toHaveValue("IRQ", { timeout: 15_000 });
+  await expect(page.getByLabel("Time window")).toHaveValue("6");
+  await expect(page.getByRole("region", { name: "Iraq 3-week trend" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("region", { name: "Iraq 3-week trend" })).not.toContainText("Seasonal context");
+});
+
+test("hides the published-events section while there are no events", async ({ page }) => {
+  await mockRuntime(page, "slow-tiles");
+  await page.goto("/");
+  await expect(page.getByRole("status").filter({ hasText: /published map features/ })).toContainText("0 published map features", { timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Published events" })).toHaveCount(0);
+});
+
+test("about page explains the data and links back to the map", async ({ page }) => {
+  await page.goto("/about");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("How MCHO reads satellite heat");
+  await expect(page.getByRole("heading", { name: "What it can't tell you" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "← Back to the live map" })).toHaveAttribute("href", "/");
 });

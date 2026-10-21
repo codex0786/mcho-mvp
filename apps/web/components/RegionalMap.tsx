@@ -13,14 +13,25 @@ type EventCollection = {
 };
 type ThermalCollection = EventCollection & { freshness?: { configured: boolean } };
 export type FlyToDetail = { longitude: number; latitude: number; zoom?: number };
+export type Bbox = [number, number, number, number];
+export type PublishedEvent = { id: string; eventType: string; verificationStatus: string; eventStart: string | null };
+type Props = {
+  hours: number;
+  country: string | null;
+  // Bounding box to show; null shows the whole region. Changes move the map.
+  focus: Bbox | null;
+  // Incremented by the Refresh button.
+  refreshKey: number;
+  onEvents?: (events: PublishedEvent[]) => void;
+};
+const REGION_VIEW = { center: [39, 27] as [number, number], zoom: 3.2 };
 
 const STYLE = process.env.NEXT_PUBLIC_MAP_STYLE_URL || "";
-const THERMAL_HOURS = 24;
 // Colours shared with the legend and the insights panel.
 export const THERMAL_COLOURS = { new: "#ff5a36", recurring: "#ffb020", persistent: "#8f9bb0" } as const;
 const CONFIDENCE = { l: "low", n: "nominal", h: "high" } as Record<string, string>;
 
-export default function RegionalMap() {
+export default function RegionalMap({ hours, country, focus, refreshKey, onEvents }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const [status, setStatus] = useState("Loading map configuration…");
@@ -30,12 +41,14 @@ export default function RegionalMap() {
   // Incremented by every refresh and on unmount, so superseded requests stop quietly.
   const eventGeneration = useRef(0);
   const thermalGeneration = useRef(0);
+  // Latest props for map callbacks that are registered once.
+  const filters = useRef({ hours, country, onEvents });
+  filters.current = { hours, country, onEvents };
+  const styleReady = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     let instance: MapLibreMap | null = null;
-    let refreshButton: HTMLElement | null = null;
-    let handler: (() => void) | null = null;
     let moveTimer: ReturnType<typeof setTimeout> | undefined;
     const flyTo = (event: Event) => {
       const detail = (event as CustomEvent<FlyToDetail>).detail;
@@ -67,15 +80,13 @@ export default function RegionalMap() {
       instance = new maplibregl.Map({
         container: container.current,
         style: styleUrl,
-        center: [39, 27],
-        zoom: 3.2,
+        ...REGION_VIEW,
       });
       instance.addControl(new maplibregl.NavigationControl(), "top-right");
-      let styleReady = false;
       // "load" waits for every initial tile; it only marks the basemap as complete.
       instance.once("load", () => { if (!cancelled) setBasemapLoading(false); });
       instance.on("error", () => {
-        if (cancelled || styleReady) return;
+        if (cancelled || styleReady.current) return;
         setBasemapLoading(false);
         setStatus("The basemap style could not be loaded. Check MCHO_MAP_STYLE_URL; no event data is inferred.");
       });
@@ -83,7 +94,7 @@ export default function RegionalMap() {
       // parsed rather than after all basemap tiles have arrived.
       instance.once("style.load", () => {
         if (!instance || cancelled) return;
-        styleReady = true;
+        styleReady.current = true;
         instance.addSource("thermal", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
         instance.addLayer({
           id: "thermal-points", type: "circle", source: "thermal",
@@ -148,9 +159,6 @@ export default function RegionalMap() {
         instance.on("mouseleave", layer, () => { if (instance) instance.getCanvas().style.cursor = ""; });
       }
       map.current = instance;
-      refreshButton = document.getElementById("refresh");
-      handler = () => { if (instance) { void refresh(instance); void refreshThermal(instance); } };
-      refreshButton?.addEventListener("click", handler);
     }
 
     void initialize();
@@ -160,13 +168,29 @@ export default function RegionalMap() {
       thermalGeneration.current += 1;
       clearTimeout(moveTimer);
       window.removeEventListener("mcho:fly-to", flyTo);
-      if (refreshButton && handler) refreshButton.removeEventListener("click", handler);
       instance?.remove();
       map.current = null;
     };
     // Map initialization intentionally runs once; the style is resolved at runtime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (map.current && styleReady.current) void refreshThermal(map.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hours, country, refreshKey]);
+
+  useEffect(() => {
+    if (map.current && styleReady.current && refreshKey > 0) void refresh(map.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
+
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance) return;
+    if (focus) instance.fitBounds([[focus[0], focus[1]], [focus[2], focus[3]]], { padding: 40, maxZoom: 8 });
+    else instance.easeTo(REGION_VIEW);
+  }, [focus]);
 
   function bounds(instance: MapLibreMap) {
     const b = instance.getBounds();
@@ -177,14 +201,7 @@ export default function RegionalMap() {
   async function refresh(instance: MapLibreMap) {
     const generation = ++eventGeneration.current;
     try {
-      const from = (document.getElementById("from-date") as HTMLInputElement | null)?.value;
-      const to = (document.getElementById("to-date") as HTMLInputElement | null)?.value;
-      const verification = (document.getElementById("verification") as HTMLSelectElement | null)?.value;
-      const url = apiUrl("/map/events", {
-        ...bounds(instance),
-        from: from ? `${from}T00:00:00Z` : undefined, to: to ? `${to}T23:59:59Z` : undefined,
-        verification_status: verification || undefined,
-      });
+      const url = apiUrl("/map/events", bounds(instance));
       const data = await getJsonWithWake<EventCollection>(url, {
         isCurrent: () => generation === eventGeneration.current,
         onWaking: () => setStatus("The API is waking up (free hosting can take about a minute). Retrying…"),
@@ -195,7 +212,11 @@ export default function RegionalMap() {
         ? `Showing the first ${data.features.length} published map features (limit ${data.feature_limit ?? data.features.length}); zoom in or narrow the dates to see all`
         : `${data.features.length} published map features`;
       setStatus(`${count} · API data timestamp ${data.response_generated_at || "not supplied"}`);
-      renderEventList(data.features);
+      filters.current.onEvents?.(data.features.map((f) => ({
+        id: String(f.id), eventType: String(f.properties.event_type || "Event"),
+        verificationStatus: String(f.properties.verification_status || "unknown"),
+        eventStart: f.properties.event_start ? String(f.properties.event_start) : null,
+      })));
     } catch (err) {
       if (generation !== eventGeneration.current) return;
       setStatus(`Map data unavailable: ${err instanceof Error ? err.message : "unknown error"}. No live data is inferred.`);
@@ -206,7 +227,10 @@ export default function RegionalMap() {
     const generation = ++thermalGeneration.current;
     setThermalStatus("Satellite heat detections: retrieving…");
     try {
-      const data = await getJsonWithWake<ThermalCollection>(apiUrl("/thermal/detections", { ...bounds(instance), hours: THERMAL_HOURS }), {
+      const { hours: windowHours, country: selected } = filters.current;
+      const data = await getJsonWithWake<ThermalCollection>(apiUrl("/thermal/detections", {
+        ...bounds(instance), hours: windowHours, country: selected ?? undefined,
+      }), {
         isCurrent: () => generation === thermalGeneration.current,
         onWaking: () => setThermalStatus("Satellite heat detections: server waking up, retrying…"),
       });
@@ -223,23 +247,10 @@ export default function RegionalMap() {
       const shown = data.truncated
         ? `${data.features.length} shown, new and recurring first (zoom in to see every persistent site)`
         : `${data.features.length}`;
-      setThermalStatus(`Satellite heat detections in view, last ${THERMAL_HOURS} h: ${shown}${newest ? ` · newest ${utcTime(newest)}` : ""}`);
+      setThermalStatus(`Satellite heat detections in view, last ${windowHours} h: ${shown}${newest ? ` · newest ${utcTime(newest)}` : ""}`);
     } catch (err) {
       if (generation !== thermalGeneration.current) return;
       setThermalStatus(`Satellite heat detections unavailable: ${err instanceof Error ? err.message.replace("API returned", "server returned") : "unknown error"}.`);
-    }
-  }
-
-  function renderEventList(features: EventFeature[]) {
-    const target = document.getElementById("event-list");
-    if (!target) return;
-    target.replaceChildren();
-    if (!features.length) { const p = document.createElement("div"); p.className = "empty"; p.textContent = "No published events in this map view and time range."; target.append(p); return; }
-    for (const f of features.slice(0, 30)) {
-      const card = document.createElement("article"); card.className = "event-item";
-      const title = document.createElement("strong"); title.textContent = String(f.properties.event_type || "Event");
-      const meta = document.createElement("p"); meta.textContent = `${String(f.properties.verification_status || "unknown")} · ${String(f.properties.event_start || "Time not provided")}`;
-      card.append(title, meta); target.append(card);
     }
   }
 
@@ -247,7 +258,7 @@ export default function RegionalMap() {
     <div className="map-wrap">
       <div ref={container} className="map-canvas" aria-label="Interactive regional map"/>
       <div className="map-legend" aria-label="Map legend">
-        <strong>Satellite heat, last {THERMAL_HOURS} h</strong>
+        <strong>Satellite heat, last {hours} h</strong>
         <span><i style={{ background: THERMAL_COLOURS.new }}/>New activity</span>
         <span><i style={{ background: THERMAL_COLOURS.recurring }}/>Recurring</span>
         <span><i style={{ background: THERMAL_COLOURS.persistent }}/>Persistent site</span>

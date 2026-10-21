@@ -13,6 +13,7 @@ from app.db.session import get_db
 from app.models.entities import ThermalRefresh
 from app.thermal import refresh as thermal_refresh
 from app.thermal.analysis import country_exists, country_list, country_trend, detections_geojson, insights
+from app.thermal.tracks import thermal_tracks
 
 router = APIRouter(prefix="/thermal", tags=["satellite thermal detections"])
 COUNTRY_PATTERN = r"^[A-Z]{3}$"
@@ -90,3 +91,15 @@ def thermal_country_trend(
     payload = country_trend(db, datetime.now(timezone.utc), _known_country(db, iso_a3), days)
     payload["freshness"] = _freshness(db, background)
     return payload
+
+
+@router.get("/tracks")
+def thermal_tracks_endpoint(
+    background: BackgroundTasks,
+    days: int = Query(default=7, ge=3, le=14),
+    country: str | None = Query(default=None, pattern=COUNTRY_PATTERN),
+    db: Session = Depends(get_db),
+):
+    """Heat clusters linked across days into tracks (GeoJSON LineStrings)."""
+    payload = thermal_tracks(db, datetime.now(timezone.utc), days, _known_country(db, country))
+    return {**payload, "freshness": _freshness(db, background)}

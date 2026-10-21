@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     postgres_user: str = "mcho"
     postgres_password: str = "local-only"
     redis_url: str = "redis://localhost:6379/0"
+    # Redis only carries Celery ingestion tasks. Deployments without a worker (the
+    # free tier) set this false: readiness then reports Redis as "disabled".
+    redis_required: bool = True
     oidc_issuer: str = ""
     oidc_audience: str = ""
     oidc_jwks_url: str = ""

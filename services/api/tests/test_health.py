@@ -81,3 +81,16 @@ def test_app_logging_reaches_a_handler_at_configured_level():
     logger = configure_app_logging("warning")
     assert logger.handlers and logger.level == logging.WARNING
     configure_app_logging("info")
+
+
+def test_readiness_reports_redis_disabled_when_not_required(monkeypatch):
+    from app.core.config import settings
+
+    def must_not_probe():
+        raise AssertionError("Redis must not be probed when it is not required")
+
+    monkeypatch.setattr(settings, "redis_required", False)
+    monkeypatch.setattr("app.routers.health.redis_dependency_ready", must_not_probe)
+    result = ready(db=FakeDatabase())
+    assert result["status"] == "ready"
+    assert result["dependencies"] == {"database": "ok", "postgis": "ok", "redis": "disabled"}

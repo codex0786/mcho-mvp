@@ -78,10 +78,12 @@ def ready(db: Session = Depends(get_db)):
         except Exception:
             pass
 
-    if redis_dependency_ready():
+    if not settings.redis_required:
+        dependencies["redis"] = "disabled"
+    elif redis_dependency_ready():
         dependencies["redis"] = "ok"
 
-    if any(value != "ok" for value in dependencies.values()):
+    if any(value not in {"ok", "disabled"} for value in dependencies.values()):
         raise HTTPException(
             status_code=503,
             detail={"status": "not_ready", "dependencies": dependencies},

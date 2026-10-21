@@ -183,3 +183,20 @@ def test_public_endpoints_report_freshness_and_do_not_refresh_without_a_key(db, 
         assert geo["type"] == "FeatureCollection" and geo["truncated"] is False
     finally:
         app.dependency_overrides.clear()
+
+
+def test_capped_map_keeps_new_activity_before_persistent_sites(db, monkeypatch):
+    now = datetime(2026, 10, 21, 12, tzinfo=timezone.utc)
+    for site in range(3):  # three flare sites: five baseline days each, plus very recent window detections
+        lat, lon = 30.5 + site * 0.3, 47.5 + site * 0.3
+        for day in range(2, 7):
+            _add(db, lat, lon, now - timedelta(days=day), "IRQ")
+        _add(db, lat, lon, now - timedelta(minutes=10 + site), "IRQ")
+    for i in range(2):  # two new detections, older than every flare detection in the window
+        _add(db, 15.55 + i * 0.05, 32.53, now - timedelta(hours=20 + i), "SDN")
+    db.commit()
+
+    monkeypatch.setattr("app.thermal.analysis.MAX_FEATURES", 2)
+    result = detections_geojson(db, now, 24, (20, 10, 60, 40))
+    assert result["truncated"] is True
+    assert [f["properties"]["classification"] for f in result["features"]] == ["new", "new"]

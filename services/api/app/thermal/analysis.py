@@ -11,11 +11,13 @@ Method (documented for users in docs/satellite-thermal.md):
 - New-activity clusters group new detections into ~10 km cells (0.1 degrees).
 None of these labels says what caused the heat; they are leads for review.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+from app.core.config import settings
 
 CELL_DEGREES = 0.02
 CLUSTER_DEGREES = 0.1
@@ -142,6 +144,11 @@ def insights(db: Session, now: datetime, hours: int = 24, country: str | None = 
     if coverage_start and coverage_start < params["window_start"]:
         baseline_days_available = round(min(BASELINE_DAYS, (params["window_start"] - coverage_start).total_seconds() / 86400), 1)
 
+    covered_from = first_covered_day(db)
+    today = now.astimezone(timezone.utc).date()
+    recent_days = [today - timedelta(days=offset) for offset in range(1, 8)
+                   if covered_from and today - timedelta(days=offset) >= covered_from]
+    yoy_pairs = comparable_daily(db, recent_days)
     country_items = []
     for row in countries:
         average = float(row["baseline_daily_average"])
@@ -153,6 +160,7 @@ def insights(db: Session, now: datetime, hours: int = 24, country: str | None = 
             "baseline_daily_average": round(average, 1),
             "ratio_to_baseline": round(daily_rate / average, 1) if average else None,
             "max_frp_mw": row["max_frp"], "elevated": elevated,
+            "year_on_year_7d": week_on_year([yoy_pairs[(row["iso_a3"], day)] for day in recent_days if (row["iso_a3"], day) in yoy_pairs]),
         })
     return {
         "window_hours": hours, "window_start": params["window_start"].isoformat(), "generated_at": now.isoformat(),
@@ -245,8 +253,19 @@ def country_trend(db: Session, now: datetime, iso_a3: str, days: int) -> dict[st
             "other": row["total"] - row["persistent"] if covered else None,
             "max_frp_mw": row["max_frp"] if covered else None,
         })
+    pairs = comparable_daily(db, [date.fromisoformat(p["date"]) for p in series if p["covered"]], iso_a3)
+    for point in series:
+        pair = pairs.get((iso_a3, date.fromisoformat(point["date"])))
+        point["comparable_total"] = pair["this_year"] if pair else None
+        point["last_year_total"] = pair["last_year"] if pair else None
+    complete = [pairs[(iso_a3, date.fromisoformat(p["date"]))] for p in series
+                if not p["partial"] and (iso_a3, date.fromisoformat(p["date"])) in pairs][-7:]
     name = db.scalar(text("SELECT name FROM country_boundaries WHERE iso_a3 = :iso"), {"iso": iso_a3})
     return {
+        "year_on_year_7d": week_on_year(complete),
+        "comparison_note": ("Last year's totals come from NASA's FIRMS archive for the same calendar days, counting only "
+                            "satellites available in both years. They include persistent sites, so compare them with "
+                            "this year's total, not the activity bars."),
         "iso_a3": iso_a3, "name": name, "days": days, "generated_at": now.isoformat(), "series": series,
         "persistent_rule": (f"Sites with heat on at least {PERSISTENT_MIN_DAYS} of the {BASELINE_DAYS} days before "
                             "the last 24 hours, applied to every day."),
@@ -254,3 +273,69 @@ def country_trend(db: Session, now: datetime, iso_a3: str, days: int) -> dict[st
                           "counts: missing data is not zero. Today is incomplete."),
         "caveats": CAVEATS,
     }
+
+
+YOY_MIN_DAYS = 5
+
+
+def comparable_daily(db: Session, days: list[date], country: str | None = None) -> dict[tuple[str, date], dict[str, int]]:
+    """This-year vs same-day-last-year detection totals per (country, day).
+
+    Only satellites whose archive was fetched for last year's day are counted on both
+    sides, so the totals are like for like. Days with no fetched archive are omitted.
+    """
+    from app.thermal.history import ARCHIVE_FOR, last_year
+
+    if not days:
+        return {}
+    families = {p.strip() for p in settings.firms_products.split(",") if p.strip() in ARCHIVE_FOR}
+    prior = {day: last_year(day) for day in days}
+    country_filter = " AND country_code = :country" if country else ""
+    fetched: dict[date, set[str]] = {}
+    for day, product in db.execute(
+        text("SELECT day, product FROM thermal_history_fetches WHERE day = ANY(:days)"), {"days": list(prior.values())}
+    ).all():
+        fetched.setdefault(day, set()).add(product)
+    history = {
+        (row.country_code, row.day, row.product): row.detections
+        for row in db.execute(text(
+            "SELECT country_code, day, product, detections FROM thermal_history_daily WHERE day = ANY(:days)" + country_filter
+        ), {"days": list(prior.values()), "country": country}).all()
+    }
+    current = {
+        (row.country_code, row.day, row.product): row.n
+        for row in db.execute(text(
+            "SELECT country_code, (acquired_at AT TIME ZONE 'UTC')::date AS day, product, count(*) AS n "
+            "FROM thermal_detections WHERE acquired_at >= :start AND acquired_at < :end" + country_filter +
+            " GROUP BY 1, 2, 3"
+        ), {"start": datetime.combine(min(days), datetime.min.time(), tzinfo=timezone.utc),
+            "end": datetime.combine(max(days) + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc),
+            "country": country}).all()
+    }
+    countries = [country] if country else [code for (code,) in db.execute(text("SELECT iso_a3 FROM country_boundaries")).all()]
+    result: dict[tuple[str, date], dict[str, int]] = {}
+    for day in days:
+        satellites = fetched.get(prior[day], set()) & families
+        if not satellites:
+            continue
+        for code in countries:
+            result[(code, day)] = {
+                "this_year": sum(current.get((code, day, p), 0) for p in satellites),
+                "last_year": sum(history.get((code, prior[day], p), 0) for p in satellites),
+            }
+    return result
+
+
+def first_covered_day(db: Session) -> date | None:
+    start = db.scalar(text("SELECT min(acquired_at) FROM thermal_detections"))
+    return (start.astimezone(timezone.utc).date() + timedelta(days=1)) if start else None
+
+
+def week_on_year(pairs: list[dict[str, int]]) -> dict[str, Any] | None:
+    """Sum the last complete days into a like-for-like comparison, if enough days exist."""
+    if len(pairs) < YOY_MIN_DAYS:
+        return None
+    this_year = sum(p["this_year"] for p in pairs)
+    last = sum(p["last_year"] for p in pairs)
+    return {"days": len(pairs), "this_year": this_year, "last_year": last,
+            "ratio": round(this_year / last, 2) if last else None}

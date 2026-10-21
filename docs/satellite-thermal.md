@@ -57,6 +57,17 @@ The rules are deliberately simple so every number can be traced back to
 individual detections. Until 7 days of history exist, the panel says the
 baseline is still building.
 
+## Sentinel-2 imagery for clusters
+
+`GET /api/v1/sentinel2/scenes?lat=&lon=&days=30` searches the free
+[Earth Search](https://earth-search.aws.element84.com/v1) STAC catalogue
+(Copernicus Sentinel-2 L2A on AWS Open Data, no key) for the latest scenes over a
+point in the MENA area. Results are cached for an hour per ~1 km location. Each
+scene returns its date, cloud cover, a low-resolution preview of the ~110 km
+tile with the point's approximate position, and a Copernicus Browser link for
+full 10 m viewing. Sentinel-2 revisits about every 5 days, so imagery can predate
+or postdate a heat detection; it helps a reviewer look, it doesn't confirm anything.
+
 ## API
 
 Both endpoints are public and read-only, and every response includes

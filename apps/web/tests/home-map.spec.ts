@@ -238,3 +238,37 @@ test("about page explains the data and links back to the map", async ({ page }) 
   await expect(page.getByRole("heading", { name: "What it can't tell you" })).toBeVisible();
   await expect(page.getByRole("link", { name: "← Back to the live map" })).toHaveAttribute("href", "/");
 });
+
+test("shows recent Sentinel-2 imagery for a new-activity cluster", async ({ page }) => {
+  await mockRuntime(page, "slow-tiles");
+  const scene = (id: string, date: string, cloud: number) => ({
+    id, acquired_at: `${date}T08:57:42+00:00`, cloud_cover_percent: cloud, tile: "MGRS-34PHS",
+    preview_url: `https://sentinel-cogs.mcho.test/${id}/preview.jpg`, bbox: [23, 9, 25, 11], marker: { x: 0.4, y: 0.6 },
+    browser_url: `https://browser.dataspace.copernicus.eu/?lat=15.57&lng=32.55&fromTime=${date}T00:00:00.000Z`,
+  });
+  await page.route("**/sentinel2/scenes**", (route) => route.fulfill({ json: {
+    latitude: 15.57, longitude: 32.55, days: 30, clearest_recent_id: "S2_clear",
+    scenes: [scene("S2_cloudy", "2026-10-19", 68), scene("S2_clear", "2026-10-14", 3)],
+    caveats: "Sentinel-2 is a different satellite from the heat detections.", source: { name: "Earth Search" },
+  } }));
+  // 1x1 transparent PNG for the preview images.
+  await page.route("https://sentinel-cogs.mcho.test/**", (route) => route.fulfill({
+    contentType: "image/png",
+    body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64"),
+  }));
+  await page.goto("/");
+  const panel = page.getByRole("region", { name: "Satellite insights" });
+  const toggle = panel.getByRole("button", { name: "Satellite image" }).first();
+  await expect(toggle).toBeVisible({ timeout: 15_000 });
+  await toggle.click();
+
+  const imagery = panel.getByLabel("Sentinel-2 imagery near Sudan cluster");
+  await expect(imagery.getByRole("img")).toHaveAttribute("alt", /2026-10-14 08:57 UTC, 3% cloud/);
+  await expect(imagery.locator(".imagery-marker")).toHaveAttribute("style", /left: 40%; top: 60%/);
+  await expect(imagery.getByRole("link", { name: /full 10 m resolution/ })).toHaveAttribute("href", /fromTime=2026-10-14/);
+  await imagery.getByRole("button", { name: /19 Oct/ }).click();
+  await expect(imagery.getByRole("img")).toHaveAttribute("alt", /2026-10-19 08:57 UTC, 68% cloud/);
+
+  await panel.getByRole("button", { name: "Hide satellite image" }).click();
+  await expect(panel.getByLabel("Sentinel-2 imagery near Sudan cluster")).toHaveCount(0);
+});

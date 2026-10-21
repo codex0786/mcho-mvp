@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { apiUrl, getJsonWithWake, timeAgo, utcTime } from "../lib/api";
+import ClusterImagery from "./ClusterImagery";
 import type { FlyToDetail } from "./RegionalMap";
 
 type Country = {
@@ -38,6 +39,7 @@ type Props = { hours: number; country: string | null; onSelectCountry: (iso3: st
 export default function ThermalInsights({ hours, country, onSelectCountry }: Props) {
   const [data, setData] = useState<Insights | null>(null);
   const [message, setMessage] = useState("Retrieving satellite insights…");
+  const [imageryFor, setImageryFor] = useState<string | null>(null);
   const generation = useRef(0);
 
   const load = useCallback(async () => {
@@ -119,14 +121,22 @@ export default function ThermalInsights({ hours, country, onSelectCountry }: Pro
           <h3>New activity clusters{country ? ` in ${data.countries.find((c) => c.iso_a3 === country)?.name ?? country}` : ""}</h3>
           {data.new_activity_clusters.length === 0 ? <p className="muted">No clusters of heat at previously quiet locations.</p> : (
             <ul className="insights-list">
-              {data.new_activity_clusters.map((c) => (
-                <li key={`${c.longitude},${c.latitude}`}>
-                  <button type="button" className="cluster-button" onClick={() => flyTo({ longitude: c.longitude, latitude: c.latitude, zoom: 10 })}>
-                    <strong>{c.country}</strong> · {c.detections} detections
-                    <span>near {c.latitude.toFixed(2)}, {c.longitude.toFixed(2)} · last {timeAgo(c.last_seen)}{c.max_frp_mw ? ` · peak ${c.max_frp_mw.toFixed(0)} MW` : ""}</span>
-                  </button>
-                </li>
-              ))}
+              {data.new_activity_clusters.map((c) => {
+                const key = `${c.longitude},${c.latitude}`;
+                const open = imageryFor === key;
+                return (
+                  <li key={key}>
+                    <button type="button" className="cluster-button" onClick={() => flyTo({ longitude: c.longitude, latitude: c.latitude, zoom: 10 })}>
+                      <strong>{c.country}</strong> · {c.detections} detections
+                      <span>near {c.latitude.toFixed(2)}, {c.longitude.toFixed(2)} · last {timeAgo(c.last_seen)}{c.max_frp_mw ? ` · peak ${c.max_frp_mw.toFixed(0)} MW` : ""}</span>
+                    </button>
+                    <button type="button" className="link-button imagery-toggle" aria-expanded={open} onClick={() => setImageryFor(open ? null : key)}>
+                      {open ? "Hide satellite image" : "Satellite image"}
+                    </button>
+                    {open && <ClusterImagery latitude={c.latitude} longitude={c.longitude} label={`${c.country} cluster`} />}
+                  </li>
+                );
+              })}
             </ul>
           )}
 

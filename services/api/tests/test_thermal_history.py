@@ -78,9 +78,10 @@ def test_history_refresh_and_year_on_year_comparison(db, monkeypatch):  # noqa: 
             _add(db, 15.5 + i * 0.1, 32.5, datetime(2026, 10, 14 + offset, 1, tzinfo=timezone.utc), "SDN")
     db.commit()
 
-    pairs = comparable_daily(db, [date(2026, 10, 20), date(2026, 10, 10)], "SDN")
+    pairs = comparable_daily(db, [date(2026, 10, 20), date(2026, 10, 10), date(2026, 9, 20)], "SDN")
     assert pairs[("SDN", date(2026, 10, 20))] == {"this_year": 2, "last_year": 3}
-    assert ("SDN", date(2026, 10, 10)) not in pairs  # outside the fetched archive window
+    assert pairs[("SDN", date(2026, 10, 10))]["last_year"] == 0  # fetched with no detections: a real zero
+    assert ("SDN", date(2026, 9, 20)) not in pairs  # last year's day was never fetched: no comparison
 
     # 2026-10-14 is the first, partial day of this year's data, so it is not compared.
     trend = country_trend(db, now, "SDN", 21)

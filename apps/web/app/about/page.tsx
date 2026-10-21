@@ -55,6 +55,14 @@ export default function About() {
           heat was detected, and clouds or smoke can hide the ground. Burn scars and smoke are often visible; small or short fires may not be.
         </p>
 
+        <h2>Shipping</h2>
+        <p>
+          The shipping panel shows how many ships pass the region&apos;s chokepoints each day — Suez, Bab el-Mandeb, Hormuz, the Bosporus,
+          Gibraltar and the Cape of Good Hope, where ships diverted from the Red Sea go round Africa — and how many call at MENA ports, compared
+          with the same days last year. The figures are the IMF&apos;s PortWatch daily aggregates, built from ships&apos; AIS signals; MCHO computes
+          the 7-day averages and comparisons. Ships that switch off AIS aren&apos;t counted, and no individual ship is shown.
+        </p>
+
         <h2>What it can&apos;t tell you</h2>
         <ul>
           <li><strong>The cause.</strong> Heat can come from fighting, shelling-related fires, crop and stubble burning, wildfires, waste burning
@@ -76,6 +84,7 @@ export default function About() {
         <ul>
           <li>Satellite detections: NASA FIRMS, VIIRS 375 m near-real-time products (NASA open data).</li>
           <li>Imagery: Copernicus Sentinel-2 L2A (free and open), found via <a className="text-link" href="https://earth-search.aws.element84.com/v1" target="_blank" rel="noreferrer">Earth Search</a> (Element 84, AWS Open Data); full-resolution viewing in Copernicus Browser.</li>
+          <li>Shipping: Source: International Monetary Fund, <a className="text-link" href="https://portwatch.imf.org" target="_blank" rel="noreferrer">PortWatch</a> (daily chokepoint transits and port calls, AIS-based); averages and comparisons computed by MCHO.</li>
           <li>Country borders: <a className="text-link" href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a> 1:50m (public domain).</li>
           <li>Basemap: <a className="text-link" href="https://openfreemap.org/" target="_blank" rel="noreferrer">OpenFreeMap</a>, map data © OpenStreetMap contributors.</li>
         </ul>

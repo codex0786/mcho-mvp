@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiUrl, getJsonWithWake } from "../lib/api";
 import CountryTrend from "./CountryTrend";
 import MovingFronts from "./MovingFronts";
+import ShippingPanel, { type MaritimeOverview } from "./ShippingPanel";
 import RegionalMap, { type Bbox, type PublishedEvent } from "./RegionalMap";
 import ThermalInsights from "./ThermalInsights";
 
@@ -32,6 +33,8 @@ export default function ObservatoryDashboard() {
   const [countries, setCountries] = useState<Country[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [events, setEvents] = useState<PublishedEvent[]>([]);
+  const [maritime, setMaritime] = useState<MaritimeOverview | null>(null);
+  const [maritimeMessage, setMaritimeMessage] = useState("Loading shipping data…");
 
   // Read shareable state after mount so server and client render the same markup.
   useEffect(() => {
@@ -50,6 +53,17 @@ export default function ObservatoryDashboard() {
     const query = params.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
   }, [hours, country]);
+
+  useEffect(() => {
+    let current = true;
+    setMaritimeMessage("Loading shipping data…");
+    getJsonWithWake<MaritimeOverview>(apiUrl("/maritime/overview", { country: country ?? undefined }), {
+      isCurrent: () => current,
+      onWaking: () => setMaritimeMessage("The server is waking up (free hosting can take about a minute). Retrying…"),
+    }).then((body) => { if (body) setMaritime(body); })
+      .catch((err) => { if (current) setMaritimeMessage(`Shipping data unavailable: ${err instanceof Error ? err.message : "unknown error"}.`); });
+    return () => { current = false; };
+  }, [country, refreshKey]);
 
   const selected = useMemo(() => countries.find((c) => c.iso_a3 === country) ?? null, [countries, country]);
   // An unknown code in the URL falls back to the whole region once the list has loaded.
@@ -83,7 +97,7 @@ export default function ObservatoryDashboard() {
             <h2>{selected ? selected.name : "Regional map"}</h2>
             <span>Satellite heat detections · unverified</span>
           </div>
-          <RegionalMap hours={hours} country={country} focus={selected?.bbox ?? null} refreshKey={refreshKey} onEvents={setEvents} />
+          <RegionalMap hours={hours} country={country} focus={selected?.bbox ?? null} refreshKey={refreshKey} onEvents={setEvents} maritime={maritime} />
         </section>
         <aside className="side-card">
           {country && <><CountryTrend key={country} iso3={country} onClose={() => selectCountry(null)} /><div className="section-divider" /></>}
@@ -107,6 +121,7 @@ export default function ObservatoryDashboard() {
           )}
         </aside>
       </div>
+      <ShippingPanel data={maritime} message={maritimeMessage} countryName={selected?.name ?? null} />
     </>
   );
 }

@@ -85,7 +85,33 @@ const TRACKS = {
   ],
 };
 
+function maritimeFor(country: string | null) {
+  const series = Array.from({ length: 90 }, (_, i) => ({ day: `2026-07-${String((i % 28) + 1).padStart(2, "0")}`, value: i === 40 ? null : 20 + (i % 5) }));
+  const chokepoint = (id: string, name: string, avg: number, last: number, change: number) => ({
+    id, name, country_code: null, longitude: 43.35, latitude: 12.79, avg_7d: avg, avg_7d_last_year: last,
+    change_vs_last_year_pct: change, series, tankers_avg_7d: 5, capacity_dwt_avg_7d: 900000,
+  });
+  const ports = [
+    { id: "port9", name: "Aden", country_code: "YEM", longitude: 44.95, latitude: 12.78, avg_7d: 3, avg_7d_last_year: 4,
+      change_vs_last_year_pct: -25, series, import_tonnes_7d: 30000, export_tonnes_7d: 5600 },
+    { id: "port1", name: "Port Said", country_code: "EGY", longitude: 32.3, latitude: 31.26, avg_7d: 40, avg_7d_last_year: 41,
+      change_vs_last_year_pct: -2, series, import_tonnes_7d: 900000, export_tonnes_7d: 700000 },
+  ];
+  return {
+    latest_day: "2026-10-18", country,
+    chokepoints: [chokepoint("chokepoint4", "Bab el-Mandeb Strait", 30.4, 72.1, -58), chokepoint("chokepoint1", "Suez Canal", 41, 44, -7)],
+    ports: country ? ports.filter((p) => p.country_code === country) : ports,
+    attribution: "Source: International Monetary Fund, PortWatch, https://portwatch.imf.org",
+    caveats: "Counts come from AIS ship signals.", transformation: "7-day averages are computed by MCHO.",
+    freshness: { refresh_scheduled: false, last_successful_refresh_at: NOW, last_attempt: { status: "succeeded", error_summary: null } },
+  };
+}
+
 async function mockThermal(page: Page, configured = true) {
+  await page.route("**/maritime/overview**", (route) => {
+    const country = new URL(route.request().url()).searchParams.get("country");
+    return route.fulfill({ json: maritimeFor(country) });
+  });
   await page.route("**/thermal/tracks**", (route) => route.fulfill({ json: configured ? TRACKS : { ...TRACKS, features: [], total_tracks: 0 } }));
   await page.route("**/thermal/countries", (route) => route.fulfill({ json: COUNTRIES }));
   await page.route("**/thermal/countries/*/trend**", (route) => {
@@ -318,4 +344,24 @@ test("lists moving fronts and zooms the map to the latest position", async ({ pa
   }));
   await sudan.click();
   expect(await page.evaluate(() => (window as unknown as { lastFlyTo: unknown }).lastFlyTo)).toEqual({ longitude: 30.16, latitude: 12.0, zoom: 9 });
+});
+
+test("shows shipping chokepoints and ports from IMF PortWatch, following the country filter", async ({ page }) => {
+  await mockRuntime(page, "slow-tiles");
+  await page.goto("/");
+  const shipping = page.getByRole("region", { name: "Shipping" });
+  const bab = shipping.getByRole("article", { name: "Bab el-Mandeb Strait" });
+  await expect(bab).toContainText("30.4 /day", { timeout: 15_000 });
+  await expect(bab).toContainText("-58% vs last year");
+  await expect(bab).toContainText("Same days last year: 72.1/day · tankers 5/day");
+  await expect(bab.getByRole("img", { name: /daily transits over 90 days/ })).toBeVisible();
+  await expect(shipping).toContainText("latest day 2026-10-18");
+  await expect(shipping).toContainText("Source: International Monetary Fund, PortWatch");
+  await expect(shipping.locator("tbody tr")).toHaveCount(2);
+  await expect(page.getByLabel("Map legend")).toContainText("Shipping chokepoint / port");
+
+  await page.getByLabel("Country").selectOption("SDN");
+  await expect(shipping).toContainText("PortWatch covers no ports in Sudan");
+  await page.goto("/?country=IRQ");
+  await expect(shipping).toContainText("Ports in Iraq");
 });

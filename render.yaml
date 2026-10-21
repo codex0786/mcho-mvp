@@ -1,8 +1,8 @@
 # Free-tier Render Blueprint for the MCHO API. See docs/deploy-free-tier.md.
 #
 # Creates ONE Render resource: a free Docker web service for the FastAPI API.
-# PostgreSQL/PostGIS (Neon) and Redis (Upstash) are external free services whose
-# connection strings you enter when applying the Blueprint; nothing is hard-coded.
+# PostgreSQL/PostGIS (Neon) is an external free service whose connection string
+# you enter when applying the Blueprint; nothing is hard-coded. No Redis is used.
 #
 # Free-tier constraints this file accounts for:
 # - preDeployCommand is paid-only, so the image's start script applies migrations
@@ -18,7 +18,7 @@ services:
     runtime: docker
     plan: free
     # Co-located with Vercel's default function region (iad1); pick the same AWS
-    # us-east-1 region for Neon and Upstash.
+    # us-east-1 region for Neon.
     region: virginia
     dockerfilePath: ./services/api/Dockerfile
     dockerContext: ./services/api
@@ -39,10 +39,10 @@ services:
       # postgresql://USER:PASSWORD@ep-xxxx.us-east-1.aws.neon.tech/neondb?sslmode=require
       - key: DATABASE_URL
         sync: false
-      # Upstash TLS URL with ssl_cert_reqs appended, e.g.
-      # rediss://default:PASSWORD@xxxx.upstash.io:6379?ssl_cert_reqs=required
-      - key: REDIS_URL
-        sync: false
+      # No worker on the free tier, so no Redis: readiness reports it as "disabled"
+      # and manual ingestion requests return 503. Set true with a REDIS_URL to use one.
+      - key: REDIS_REQUIRED
+        value: "false"
       # Browsers reach the API only through the Vercel same-origin proxy, so CORS is
       # limited to the public web origin.
       - key: CORS_ORIGINS

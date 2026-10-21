@@ -11,7 +11,7 @@ Method (documented for users in docs/satellite-thermal.md):
 - New-activity clusters group new detections into ~10 km cells (0.1 degrees).
 None of these labels says what caused the heat; they are leads for review.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -63,12 +63,15 @@ def _window(now: datetime, hours: int) -> dict[str, Any]:
     }
 
 
-def detections_geojson(db: Session, now: datetime, hours: int, bbox: tuple[float, float, float, float]) -> dict[str, Any]:
+def detections_geojson(
+    db: Session, now: datetime, hours: int, bbox: tuple[float, float, float, float], country: str | None = None,
+) -> dict[str, Any]:
     west, south, east, north = bbox
     params = {**_window(now, hours), "west": west, "south": south, "east": east, "north": north,
-              "limit": MAX_FEATURES + 1, "pad": CELL_DEGREES}
+              "limit": MAX_FEATURES + 1, "pad": CELL_DEGREES, "country": country}
     spatial = "AND geometry && ST_MakeEnvelope(:west - :pad, :south - :pad, :east + :pad, :north + :pad, 4326)"
-    sql = _CLASSIFIED.format(baseline_filter=spatial, recent_filter=spatial.replace("geometry", "d.geometry")) + """
+    recent = spatial.replace("geometry", "d.geometry") + (" AND d.country_code = :country" if country else "")
+    sql = _CLASSIFIED.format(baseline_filter=spatial, recent_filter=recent) + """
     SELECT c.id, c.latitude, c.longitude, c.acquired_at, c.frp, c.confidence, c.satellite, c.product,
            c.daynight, c.country_code, cb.name AS country_name, c.classification, c.baseline_days
     FROM classified AS c JOIN country_boundaries AS cb ON cb.iso_a3 = c.country_code
@@ -92,8 +95,8 @@ def detections_geojson(db: Session, now: datetime, hours: int, bbox: tuple[float
     return {"type": "FeatureCollection", "features": features, "truncated": truncated, "feature_limit": MAX_FEATURES}
 
 
-def insights(db: Session, now: datetime, hours: int = 24) -> dict[str, Any]:
-    params = {**_window(now, hours), "cluster": CLUSTER_DEGREES}
+def insights(db: Session, now: datetime, hours: int = 24, country: str | None = None) -> dict[str, Any]:
+    params = {**_window(now, hours), "cluster": CLUSTER_DEGREES, "country": country}
     classified = _CLASSIFIED.format(baseline_filter="", recent_filter="")
     countries = db.execute(text(classified + """
     , window_counts AS (
@@ -126,7 +129,7 @@ def insights(db: Session, now: datetime, hours: int = 24) -> dict[str, Any]:
            max(c.frp) AS max_frp, min(c.acquired_at) AS first_seen, max(c.acquired_at) AS last_seen,
            count(DISTINCT c.satellite) AS satellites
     FROM classified AS c JOIN country_boundaries AS cb ON cb.iso_a3 = c.country_code
-    WHERE c.classification = 'new'
+    WHERE c.classification = 'new' AND (CAST(:country AS text) IS NULL OR c.country_code = :country)
     GROUP BY c.country_code, cb.name, gx, gy
     HAVING count(*) >= 2
     ORDER BY count(*) DESC, max(c.frp) DESC NULLS LAST
@@ -153,6 +156,7 @@ def insights(db: Session, now: datetime, hours: int = 24) -> dict[str, Any]:
         })
     return {
         "window_hours": hours, "window_start": params["window_start"].isoformat(), "generated_at": now.isoformat(),
+        "country": country,
         "latest_detection_at": latest_detection.isoformat() if latest_detection else None,
         "baseline_days_available": baseline_days_available,
         "totals": {
@@ -176,4 +180,77 @@ def insights(db: Session, now: datetime, hours: int = 24) -> dict[str, Any]:
         "caveats": CAVEATS,
         "source": {"name": "NASA FIRMS", "url": "https://firms.modaps.eosdis.nasa.gov/", "attribution":
                    "NASA Fire Information for Resource Management System (FIRMS), VIIRS 375 m NRT"},
+    }
+
+
+def country_list(db: Session) -> list[dict[str, Any]]:
+    rows = db.execute(text("""
+        SELECT iso_a3, iso_a2, name, ST_XMin(geometry) AS west, ST_YMin(geometry) AS south,
+               ST_XMax(geometry) AS east, ST_YMax(geometry) AS north
+        FROM country_boundaries ORDER BY name
+    """)).mappings().all()
+    return [{
+        "iso_a3": row["iso_a3"], "iso_a2": row["iso_a2"], "name": row["name"],
+        "bbox": [round(row["west"], 3), round(row["south"], 3), round(row["east"], 3), round(row["north"], 3)],
+    } for row in rows]
+
+
+def country_exists(db: Session, iso_a3: str) -> bool:
+    return bool(db.scalar(text("SELECT 1 FROM country_boundaries WHERE iso_a3 = :iso"), {"iso": iso_a3}))
+
+
+def country_trend(db: Session, now: datetime, iso_a3: str, days: int) -> dict[str, Any]:
+    """Daily detections for one country, split by the same persistent-site rule as insights.
+
+    Persistent cells are those classed persistent in the current 7-day baseline, applied
+    to every day so the series is comparable. Days before stored data begins have no
+    counts (null), because missing data is not zero.
+    """
+    params = {**_window(now, 24), "iso": iso_a3, "days": days}
+    rows = db.execute(text("""
+        WITH baseline AS (
+            SELECT floor(longitude / :cell)::int AS cx, floor(latitude / :cell)::int AS cy,
+                   count(DISTINCT (acquired_at AT TIME ZONE 'UTC')::date) AS days
+            FROM thermal_detections
+            WHERE country_code = :iso AND acquired_at >= :baseline_start AND acquired_at < :window_start
+            GROUP BY 1, 2
+        ), persistent AS (
+            SELECT cx, cy FROM baseline WHERE days >= :persistent_days
+        ), calendar AS (
+            SELECT generate_series(
+                (CAST(:now AS timestamptz) AT TIME ZONE 'UTC')::date - :days,
+                (CAST(:now AS timestamptz) AT TIME ZONE 'UTC')::date, interval '1 day')::date AS day
+        )
+        SELECT c.day, count(t.id) AS total, count(t.id) FILTER (WHERE p.cx IS NOT NULL) AS persistent,
+               max(t.frp) AS max_frp
+        FROM calendar AS c
+        LEFT JOIN thermal_detections AS t
+          ON t.country_code = :iso AND (t.acquired_at AT TIME ZONE 'UTC')::date = c.day AND t.acquired_at <= :now
+        LEFT JOIN persistent AS p
+          ON p.cx = floor(t.longitude / :cell)::int AND p.cy = floor(t.latitude / :cell)::int
+        GROUP BY c.day ORDER BY c.day
+    """), params).mappings().all()
+    coverage_start = db.scalar(text("SELECT min(acquired_at) FROM thermal_detections"))
+    first_covered_day = (coverage_start.astimezone(timezone.utc).date() + timedelta(days=1)) if coverage_start else None
+    today = now.astimezone(timezone.utc).date()
+    series = []
+    for row in rows:
+        covered = first_covered_day is not None and row["day"] >= first_covered_day
+        series.append({
+            "date": row["day"].isoformat(),
+            "covered": covered,
+            "partial": row["day"] == today,
+            "total": row["total"] if covered else None,
+            "persistent": row["persistent"] if covered else None,
+            "other": row["total"] - row["persistent"] if covered else None,
+            "max_frp_mw": row["max_frp"] if covered else None,
+        })
+    name = db.scalar(text("SELECT name FROM country_boundaries WHERE iso_a3 = :iso"), {"iso": iso_a3})
+    return {
+        "iso_a3": iso_a3, "name": name, "days": days, "generated_at": now.isoformat(), "series": series,
+        "persistent_rule": (f"Sites with heat on at least {PERSISTENT_MIN_DAYS} of the {BASELINE_DAYS} days before "
+                            "the last 24 hours, applied to every day."),
+        "coverage_note": ("Days before data collection began, and the first partial day of collection, show no "
+                          "counts: missing data is not zero. Today is incomplete."),
+        "caveats": CAVEATS,
     }

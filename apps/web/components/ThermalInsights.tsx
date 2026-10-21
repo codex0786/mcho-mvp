@@ -33,7 +33,9 @@ function flyTo(detail: FlyToDetail) {
   document.querySelector(".map-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-export default function ThermalInsights() {
+type Props = { hours: number; country: string | null; onSelectCountry: (iso3: string) => void };
+
+export default function ThermalInsights({ hours, country, onSelectCountry }: Props) {
   const [data, setData] = useState<Insights | null>(null);
   const [message, setMessage] = useState("Retrieving satellite insights…");
   const generation = useRef(0);
@@ -41,7 +43,7 @@ export default function ThermalInsights() {
   const load = useCallback(async () => {
     const current = ++generation.current;
     try {
-      const body = await getJsonWithWake<Insights>(apiUrl("/thermal/insights"), {
+      const body = await getJsonWithWake<Insights>(apiUrl("/thermal/insights", { hours, country: country ?? undefined }), {
         isCurrent: () => current === generation.current,
         onWaking: () => setMessage("The server is waking up (free hosting can take about a minute). Retrying…"),
       });
@@ -51,7 +53,7 @@ export default function ThermalInsights() {
     } catch (err) {
       if (current === generation.current) setMessage(`Satellite insights unavailable: ${err instanceof Error ? err.message : "unknown error"}.`);
     }
-  }, []);
+  }, [hours, country]);
 
   const warming = Boolean(data && data.freshness.configured && !data.latest_detection_at
     && (data.freshness.refresh_scheduled || data.freshness.refresh_running || data.freshness.last_attempt?.status === "running"));
@@ -106,14 +108,15 @@ export default function ThermalInsights() {
             <ul className="insights-list">
               {elevated.map((c) => (
                 <li key={c.iso_a3}>
-                  <strong>{c.name}</strong>: {c.active_detections} detections
+                  <button type="button" className="link-button" onClick={() => onSelectCountry(c.iso_a3)}><strong>{c.name}</strong></button>
+                  : {c.active_detections} detections
                   {c.ratio_to_baseline ? ` (${c.ratio_to_baseline}× the 7-day daily average of ${c.baseline_daily_average})` : " (none in the previous 7 days)"}
                 </li>
               ))}
             </ul>
           )}
 
-          <h3>New activity clusters</h3>
+          <h3>New activity clusters{country ? ` in ${data.countries.find((c) => c.iso_a3 === country)?.name ?? country}` : ""}</h3>
           {data.new_activity_clusters.length === 0 ? <p className="muted">No clusters of heat at previously quiet locations.</p> : (
             <ul className="insights-list">
               {data.new_activity_clusters.map((c) => (
@@ -134,7 +137,7 @@ export default function ThermalInsights() {
               <tbody>
                 {activeCountries.map((c) => (
                   <tr key={c.iso_a3} className={c.elevated ? "elevated" : undefined}>
-                    <td>{c.name}</td><td>{c.active_detections}</td><td>{c.new_detections}</td><td>{c.baseline_daily_average}</td>
+                    <td><button type="button" className="link-button" onClick={() => onSelectCountry(c.iso_a3)}>{c.name}</button></td><td>{c.active_detections}</td><td>{c.new_detections}</td><td>{c.baseline_daily_average}</td>
                   </tr>
                 ))}
               </tbody>

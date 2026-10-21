@@ -73,7 +73,9 @@ def detections_geojson(db: Session, now: datetime, hours: int, bbox: tuple[float
            c.daynight, c.country_code, cb.name AS country_name, c.classification, c.baseline_days
     FROM classified AS c JOIN country_boundaries AS cb ON cb.iso_a3 = c.country_code
     WHERE c.longitude BETWEEN :west AND :east AND c.latitude BETWEEN :south AND :north
-    ORDER BY c.acquired_at DESC LIMIT :limit
+    -- When the limit is hit, keep activity: new, then recurring, then persistent sites.
+    ORDER BY CASE c.classification WHEN 'new' THEN 0 WHEN 'recurring' THEN 1 ELSE 2 END, c.acquired_at DESC
+    LIMIT :limit
     """
     rows = db.execute(text(sql), params).mappings().all()
     truncated = len(rows) > MAX_FEATURES

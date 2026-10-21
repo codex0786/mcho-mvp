@@ -94,6 +94,8 @@ export default function RegionalMap() {
             "circle-opacity": ["match", ["get", "classification"], "persistent", 0.45, 0.85],
             "circle-stroke-color": "#1b0d06", "circle-stroke-width": 0.6,
           },
+          // Higher keys draw on top, so new activity is never hidden under flare sites.
+          layout: { "circle-sort-key": ["match", ["get", "classification"], "new", 2, "recurring", 1, 0] },
         });
         instance.addSource("events", {
           type: "geojson",
@@ -218,7 +220,9 @@ export default function RegionalMap() {
         const t = String(f.properties.acquired_at);
         return !latest || t > latest ? t : latest;
       }, null);
-      const shown = data.truncated ? `first ${data.features.length} (zoom in for all)` : `${data.features.length}`;
+      const shown = data.truncated
+        ? `${data.features.length} shown, new and recurring first (zoom in to see every persistent site)`
+        : `${data.features.length}`;
       setThermalStatus(`Satellite heat detections in view, last ${THERMAL_HOURS} h: ${shown}${newest ? ` · newest ${utcTime(newest)}` : ""}`);
     } catch (err) {
       if (generation !== thermalGeneration.current) return;

@@ -31,7 +31,7 @@ const THERMAL_INSIGHTS = {
   window_hours: 24, latest_detection_at: NOW, baseline_days_available: 7,
   totals: { active_detections: 14, new_detections: 12, persistent_detections: 30, elevated_countries: 1 },
   countries: [
-    { iso_a3: "SDN", name: "Sudan", active_detections: 12, new_detections: 12, persistent_detections: 0, baseline_daily_average: 2.1, ratio_to_baseline: 5.7, max_frp_mw: 31, elevated: true },
+    { iso_a3: "SDN", name: "Sudan", active_detections: 12, new_detections: 12, persistent_detections: 0, baseline_daily_average: 2.1, ratio_to_baseline: 5.7, max_frp_mw: 31, elevated: true, year_on_year_7d: { days: 7, this_year: 350, last_year: 420, ratio: 0.83 } },
     { iso_a3: "IRQ", name: "Iraq", active_detections: 2, new_detections: 0, persistent_detections: 30, baseline_daily_average: 2.4, ratio_to_baseline: 0.8, max_frp_mw: 12, elevated: false },
   ],
   new_activity_clusters: [{ country: "Sudan", detections: 12, longitude: 32.55, latitude: 15.57, max_frp_mw: 31, first_seen: NOW, last_seen: NOW, satellites: 2 }],
@@ -56,10 +56,13 @@ function trendFor(iso3: string, name: string) {
     return {
       date: d.toISOString().slice(0, 10), covered, partial: i === 21,
       total: covered ? 40 + i : null, persistent: covered ? 10 : null, other: covered ? 30 + i : null, max_frp_mw: covered ? 12 : null,
+      comparable_total: covered ? 40 + i : null, last_year_total: covered ? 60 : null,
     };
   });
   return {
     iso_a3: iso3, name, days: 21, series, generated_at: NOW,
+    year_on_year_7d: { days: 7, this_year: 350, last_year: 420, ratio: 0.83 },
+    comparison_note: "Last year's totals come from NASA's FIRMS archive for the same calendar days.",
     persistent_rule: "Sites with heat on at least 4 of the 7 days before the last 24 hours, applied to every day.",
     coverage_note: "Days before data collection began show no counts: missing data is not zero. Today is incomplete.",
     caveats: "Not a verified event.", freshness: FRESHNESS,
@@ -271,4 +274,15 @@ test("shows recent Sentinel-2 imagery for a new-activity cluster", async ({ page
 
   await panel.getByRole("button", { name: "Hide satellite image" }).click();
   await expect(panel.getByLabel("Sentinel-2 imagery near Sudan cluster")).toHaveCount(0);
+});
+
+test("compares with the same days last year in the trend and country table", async ({ page }) => {
+  await mockRuntime(page, "slow-tiles");
+  await page.goto("/?country=SDN");
+  const trend = page.getByRole("region", { name: "Sudan 3-week trend" });
+  await expect(trend).toContainText("Same days last year: 350 detections in the last 7 full days vs 420", { timeout: 15_000 });
+  await expect(trend).toContainText("(-17%)");
+  await expect(trend).toContainText("Same day last year (total)");
+  expect(await trend.locator("rect.trend-last-year").count()).toBeGreaterThan(5);
+  await expect(page.getByRole("region", { name: "Satellite insights" }).locator("tr", { hasText: "Sudan" })).toContainText("0.83×");
 });

@@ -9,6 +9,7 @@ import type { FlyToDetail } from "./RegionalMap";
 type Country = {
   iso_a3: string; name: string; active_detections: number; new_detections: number; persistent_detections: number;
   baseline_daily_average: number; ratio_to_baseline: number | null; max_frp_mw: number | null; elevated: boolean;
+  year_on_year_7d?: { days: number; this_year: number; last_year: number; ratio: number | null } | null;
 };
 type Cluster = {
   country: string; detections: number; longitude: number; latitude: number; max_frp_mw: number | null;
@@ -143,11 +144,12 @@ export default function ThermalInsights({ hours, country, onSelectCountry }: Pro
           <h3>By country</h3>
           {activeCountries.length === 0 ? <p className="muted">No detections in the last {data.window_hours} hours.</p> : (
             <table className="insights-table">
-              <thead><tr><th>Country</th><th title="Non-persistent detections">Active</th><th title="At locations quiet for 7 days">New</th><th title="Daily average over the previous 7 days">7-day avg</th></tr></thead>
+              <thead><tr><th>Country</th><th title="Non-persistent detections">Active</th><th title="At locations quiet for 7 days">New</th><th title="Daily average over the previous 7 days">7-day avg</th><th title="Last 7 full days vs the same days last year, same satellites, all detections">vs last yr</th></tr></thead>
               <tbody>
                 {activeCountries.map((c) => (
                   <tr key={c.iso_a3} className={c.elevated ? "elevated" : undefined}>
                     <td><button type="button" className="link-button" onClick={() => onSelectCountry(c.iso_a3)}>{c.name}</button></td><td>{c.active_detections}</td><td>{c.new_detections}</td><td>{c.baseline_daily_average}</td>
+                    <td>{c.year_on_year_7d?.ratio != null ? `${c.year_on_year_7d.ratio}×` : "—"}</td>
                   </tr>
                 ))}
               </tbody>

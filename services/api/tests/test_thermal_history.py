@@ -4,7 +4,7 @@ import httpx
 
 from app.core.config import settings
 from app.thermal.history import compact_points, last_year, parse_availability, plan_requests, refresh_history
-from tests.test_thermal import HEADER, KEY, _add, db  # noqa: F401 - shared PostGIS fixture
+from test_thermal import HEADER, KEY, _add, db  # noqa: F401 - shared PostGIS fixture (tests dir is on sys.path)
 
 FAMILIES = ["VIIRS_SNPP_NRT", "VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT"]
 AVAILABILITY = (

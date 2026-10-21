@@ -41,6 +41,13 @@ export default function About() {
           satellites available in both years — the clearest way to tell an unusual week from a normal burning season.
         </p>
 
+        <h2>Moving fronts</h2>
+        <p>
+          Heat clusters on consecutive days that lie within 30 km of each other are linked into a <strong>moving front</strong> (cyan lines on the
+          map), so you can see whether activity is spreading or shifting and in which direction. Gas flares and other persistent sites are left out.
+          A front shows how heat moved, not what caused it: separate fires close together can be linked, and clouds can break a front.
+        </p>
+
         <h2>Looking at the ground</h2>
         <p>
           For each new-activity cluster, &ldquo;Satellite image&rdquo; shows recent Copernicus Sentinel-2 pictures of the area, with a link to view them at

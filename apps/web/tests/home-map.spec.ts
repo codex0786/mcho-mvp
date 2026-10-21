@@ -69,7 +69,24 @@ function trendFor(iso3: string, name: string) {
   };
 }
 
+const TRACKS = {
+  type: "FeatureCollection", total_tracks: 2, days: 7, daily_clusters: 9,
+  caveats: "A track shows how heat moved, not why. Not a verified event.",
+  method: { cluster_eps_km: 6, cluster_min_detections: 3, link_km: 30, max_gap_days: 2 },
+  features: [
+    { type: "Feature", geometry: { type: "LineString", coordinates: [[30.0, 12.0], [30.08, 12.0], [30.16, 12.0]] }, properties: {
+      country_code: "SDN", country: "Sudan", first_day: "2026-10-18", last_day: "2026-10-20", days_active: 3, detections: 312,
+      max_frp_mw: 40, displacement_km: 17.4, direction: "E", bearing_degrees: 90, km_per_day: 8.7, active: true,
+      latest: { longitude: 30.16, latitude: 12.0 }, daily: [] } },
+    { type: "Feature", geometry: { type: "LineString", coordinates: [[44.0, 33.0], [44.01, 33.0]] }, properties: {
+      country_code: "IRQ", country: "Iraq", first_day: "2026-10-15", last_day: "2026-10-16", days_active: 2, detections: 20,
+      max_frp_mw: 5, displacement_km: 0.9, direction: null, bearing_degrees: null, km_per_day: 0.9, active: false,
+      latest: { longitude: 44.01, latitude: 33.0 }, daily: [] } },
+  ],
+};
+
 async function mockThermal(page: Page, configured = true) {
+  await page.route("**/thermal/tracks**", (route) => route.fulfill({ json: configured ? TRACKS : { ...TRACKS, features: [], total_tracks: 0 } }));
   await page.route("**/thermal/countries", (route) => route.fulfill({ json: COUNTRIES }));
   await page.route("**/thermal/countries/*/trend**", (route) => {
     const iso3 = new URL(route.request().url()).pathname.split("/").at(-2) ?? "SDN";
@@ -285,4 +302,20 @@ test("compares with the same days last year in the trend and country table", asy
   await expect(trend).toContainText("Same day last year (total)");
   expect(await trend.locator("rect.trend-last-year").count()).toBeGreaterThan(5);
   await expect(page.getByRole("region", { name: "Satellite insights" }).locator("tr", { hasText: "Sudan" })).toContainText("0.83×");
+});
+
+test("lists moving fronts and zooms the map to the latest position", async ({ page }) => {
+  await mockRuntime(page, "slow-tiles");
+  await page.goto("/");
+  await expect(page.getByLabel("Map legend")).toContainText("Moving front, 7 days");
+  const fronts = page.getByRole("region", { name: "Moving fronts" });
+  const sudan = fronts.getByRole("button", { name: /Sudan · 3 days · 312 detections · active/ });
+  await expect(sudan).toBeVisible({ timeout: 15_000 });
+  await expect(sudan).toContainText("moved 17 km E (~9 km/day)");
+  await expect(fronts.getByRole("button", { name: /Iraq · 2 days/ })).toContainText("stayed in about the same area");
+  await page.evaluate(() => window.addEventListener("mcho:fly-to", (e) => {
+    (window as unknown as { lastFlyTo: unknown }).lastFlyTo = (e as CustomEvent).detail;
+  }));
+  await sudan.click();
+  expect(await page.evaluate(() => (window as unknown as { lastFlyTo: unknown }).lastFlyTo)).toEqual({ longitude: 30.16, latitude: 12.0, zoom: 9 });
 });

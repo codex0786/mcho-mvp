@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiUrl, getJsonWithWake } from "../lib/api";
 import CountryTrend from "./CountryTrend";
+import MovingFronts from "./MovingFronts";
 import RegionalMap, { type Bbox, type PublishedEvent } from "./RegionalMap";
 import ThermalInsights from "./ThermalInsights";
 
@@ -87,6 +88,8 @@ export default function ObservatoryDashboard() {
         <aside className="side-card">
           {country && <><CountryTrend key={country} iso3={country} onClose={() => selectCountry(null)} /><div className="section-divider" /></>}
           <ThermalInsights key={refreshKey} hours={hours} country={country} onSelectCountry={selectCountry} />
+          <div className="section-divider" />
+          <MovingFronts country={country} refreshKey={refreshKey} />
           {events.length > 0 && (
             <>
               <div className="section-divider" />

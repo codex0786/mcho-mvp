@@ -29,6 +29,8 @@ const REGION_VIEW = { center: [39, 27] as [number, number], zoom: 3.2 };
 const STYLE = process.env.NEXT_PUBLIC_MAP_STYLE_URL || "";
 // Colours shared with the legend and the insights panel.
 export const THERMAL_COLOURS = { new: "#ff5a36", recurring: "#ffb020", persistent: "#8f9bb0" } as const;
+export const TRACK_COLOUR = "#7fd3ff";
+export const TRACK_DAYS = 7;
 const CONFIDENCE = { l: "low", n: "nominal", h: "high" } as Record<string, string>;
 
 export default function RegionalMap({ hours, country, focus, refreshKey, onEvents }: Props) {
@@ -41,6 +43,7 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
   // Incremented by every refresh and on unmount, so superseded requests stop quietly.
   const eventGeneration = useRef(0);
   const thermalGeneration = useRef(0);
+  const trackGeneration = useRef(0);
   // Latest props for map callbacks that are registered once.
   const filters = useRef({ hours, country, onEvents });
   filters.current = { hours, country, onEvents };
@@ -108,6 +111,17 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
           // Higher keys draw on top, so new activity is never hidden under flare sites.
           layout: { "circle-sort-key": ["match", ["get", "classification"], "new", 2, "recurring", 1, 0] },
         });
+        instance.addSource("tracks", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+        instance.addLayer({
+          id: "track-lines", type: "line", source: "tracks",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: { "line-color": TRACK_COLOUR, "line-width": ["case", ["get", "active"], 3, 2], "line-opacity": ["case", ["get", "active"], 0.95, 0.55] },
+        });
+        instance.addSource("track-heads", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+        instance.addLayer({
+          id: "track-heads", type: "circle", source: "track-heads",
+          paint: { "circle-radius": 5, "circle-color": TRACK_COLOUR, "circle-stroke-color": "#06121c", "circle-stroke-width": 2 },
+        });
         instance.addSource("events", {
           type: "geojson",
           data: { type: "FeatureCollection", features: [] },
@@ -127,6 +141,7 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
         setStatus("Loading published event records…");
         void refresh(instance);
         void refreshThermal(instance);
+        void refreshTracks(instance);
       });
       instance.on("moveend", () => {
         clearTimeout(moveTimer);
@@ -154,7 +169,21 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
           + `<em>Satellite heat signature — not a verified event.</em>`,
         ).addTo(instance!);
       });
-      for (const layer of ["thermal-points", "event-points"]) {
+      const trackPopup = (e: maplibregl.MapLayerMouseEvent) => {
+        const p = e.features?.[0]?.properties;
+        if (!p) return;
+        const moved = Number(p.displacement_km) >= 2 && p.direction && p.direction !== "null"
+          ? `moved ${Number(p.displacement_km).toFixed(0)} km ${p.direction} (${Number(p.km_per_day).toFixed(0)} km/day)` : "stayed in about the same place";
+        new maplibregl.Popup({ maxWidth: "280px" }).setLngLat(e.lngLat).setHTML(
+          `<strong>Moving front${p.active === true || p.active === "true" ? " (active)" : ""}</strong><br/>`
+          + `${escapeHtml(String(p.country))} · ${escapeHtml(String(p.first_day))} → ${escapeHtml(String(p.last_day))}<br/>`
+          + `${escapeHtml(String(p.days_active))} days with heat · ${escapeHtml(moved)}<br/>`
+          + `${escapeHtml(String(p.detections))} detections<br/><em>Shows how heat moved, not what caused it.</em>`,
+        ).addTo(instance!);
+      };
+      instance.on("click", "track-lines", trackPopup);
+      instance.on("click", "track-heads", trackPopup);
+      for (const layer of ["thermal-points", "event-points", "track-lines", "track-heads"]) {
         instance.on("mouseenter", layer, () => { if (instance) instance.getCanvas().style.cursor = "pointer"; });
         instance.on("mouseleave", layer, () => { if (instance) instance.getCanvas().style.cursor = ""; });
       }
@@ -166,6 +195,7 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
       cancelled = true;
       eventGeneration.current += 1;
       thermalGeneration.current += 1;
+      trackGeneration.current += 1;
       clearTimeout(moveTimer);
       window.removeEventListener("mcho:fly-to", flyTo);
       instance?.remove();
@@ -179,6 +209,11 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
     if (map.current && styleReady.current) void refreshThermal(map.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hours, country, refreshKey]);
+
+  useEffect(() => {
+    if (map.current && styleReady.current) void refreshTracks(map.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [country, refreshKey]);
 
   useEffect(() => {
     if (map.current && styleReady.current && refreshKey > 0) void refresh(map.current);
@@ -223,6 +258,27 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
     }
   }
 
+  async function refreshTracks(instance: MapLibreMap) {
+    const generation = ++trackGeneration.current;
+    try {
+      const data = await getJsonWithWake<{ type: "FeatureCollection"; features: Array<{ properties: Record<string, unknown> & { latest: { longitude: number; latitude: number } } }> }>(
+        apiUrl("/thermal/tracks", { days: TRACK_DAYS, country: filters.current.country ?? undefined }),
+        { isCurrent: () => generation === trackGeneration.current },
+      );
+      if (!data) return;
+      (instance.getSource("tracks") as maplibregl.GeoJSONSource | undefined)?.setData(data as unknown as GeoJSON.FeatureCollection);
+      (instance.getSource("track-heads") as maplibregl.GeoJSONSource | undefined)?.setData({
+        type: "FeatureCollection",
+        features: data.features.map((f) => ({
+          type: "Feature", properties: f.properties,
+          geometry: { type: "Point", coordinates: [f.properties.latest.longitude, f.properties.latest.latitude] },
+        })),
+      } as GeoJSON.FeatureCollection);
+    } catch {
+      // Tracks are supplementary; the detection layer already reports API problems.
+    }
+  }
+
   async function refreshThermal(instance: MapLibreMap) {
     const generation = ++thermalGeneration.current;
     setThermalStatus("Satellite heat detections: retrieving…");
@@ -262,6 +318,7 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
         <span><i style={{ background: THERMAL_COLOURS.new }}/>New activity</span>
         <span><i style={{ background: THERMAL_COLOURS.recurring }}/>Recurring</span>
         <span><i style={{ background: THERMAL_COLOURS.persistent }}/>Persistent site</span>
+        <span><i className="legend-line" style={{ background: TRACK_COLOUR }}/>Moving front, {TRACK_DAYS} days</span>
         <small>Size = fire intensity. Unverified.</small>
       </div>
       <div className="map-status">

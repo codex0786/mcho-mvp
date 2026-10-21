@@ -200,3 +200,58 @@ def test_capped_map_keeps_new_activity_before_persistent_sites(db, monkeypatch):
     result = detections_geojson(db, now, 24, (20, 10, 60, 40))
     assert result["truncated"] is True
     assert [f["properties"]["classification"] for f in result["features"]] == ["new", "new"]
+
+
+def test_country_list_has_bounds_for_navigation(db):
+    from app.thermal.analysis import country_list
+
+    countries = {c["iso_a3"]: c for c in country_list(db)}
+    assert len(countries) == 22
+    west, south, east, north = countries["SDN"]["bbox"]
+    assert 21 < west < 25 and 8 < south < 10 and 37 < east < 40 and 21 < north < 24
+    assert countries["SDN"]["name"] == "Sudan"
+
+
+def test_country_trend_splits_persistent_sites_and_marks_missing_days(db):
+    from app.thermal.analysis import country_trend
+
+    now = datetime(2026, 10, 21, 12, tzinfo=timezone.utc)
+    for day in range(1, 9):  # a flare site in Sudan with heat every day for 8 days (start of data)
+        _add(db, 12.0001, 30.0001, now - timedelta(days=day), "SDN")
+    for day in (2, 3):  # other activity on two days
+        for i in range(3):
+            _add(db, 14.0 + i * 0.1, 31.0, now - timedelta(days=day, hours=i), "SDN")
+    _add(db, 14.5, 31.5, now - timedelta(hours=2), "SDN")  # today, partial
+    db.commit()
+
+    trend = country_trend(db, now, "SDN", 21)
+    series = {point["date"]: point for point in trend["series"]}
+    assert len(trend["series"]) == 22
+    assert series["2026-10-01"]["covered"] is False and series["2026-10-01"]["total"] is None  # before data began
+    assert series["2026-10-13"]["covered"] is False  # first, partial day of collection
+    day2 = series["2026-10-19"]
+    assert day2["covered"] is True and day2["total"] == 4 and day2["persistent"] == 1 and day2["other"] == 3
+    today = series["2026-10-21"]
+    assert today["partial"] is True and today["other"] == 1
+
+
+def test_country_filters_and_unknown_countries(db, monkeypatch):
+    monkeypatch.setattr(settings, "nasa_firms_api_key", "")
+    now = datetime.now(timezone.utc)
+    for i in range(3):
+        _add(db, 15.55 + i * 0.01, 32.53, now - timedelta(hours=1 + i), "SDN")
+        _add(db, 35.0 + i * 0.01, 38.0, now - timedelta(hours=1 + i), "SYR")
+    db.commit()
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        client = TestClient(app)
+        geo = client.get("/api/v1/thermal/detections?west=-18&south=8&east=64&north=40&country=SYR").json()
+        assert {f["properties"]["country_code"] for f in geo["features"]} == {"SYR"}
+        clusters = client.get("/api/v1/thermal/insights?country=SDN").json()["new_activity_clusters"]
+        assert clusters and {c["country_code"] for c in clusters} == {"SDN"}
+        assert client.get("/api/v1/thermal/countries").json()["items"][0]["iso_a3"]
+        assert client.get("/api/v1/thermal/countries/SDN/trend?days=7").json()["iso_a3"] == "SDN"
+        assert client.get("/api/v1/thermal/countries/FRA/trend").status_code == 404
+        assert client.get("/api/v1/thermal/insights?country=sdn").status_code == 422
+    finally:
+        app.dependency_overrides.clear()

@@ -5,16 +5,23 @@ an unverified observation. Nothing here creates or publishes events.
 """
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.entities import ThermalRefresh
 from app.thermal import refresh as thermal_refresh
-from app.thermal.analysis import detections_geojson, insights
+from app.thermal.analysis import country_exists, country_list, country_trend, detections_geojson, insights
 
 router = APIRouter(prefix="/thermal", tags=["satellite thermal detections"])
+COUNTRY_PATTERN = r"^[A-Z]{3}$"
+
+
+def _known_country(db: Session, country: str | None) -> str | None:
+    if country and not country_exists(db, country):
+        raise HTTPException(status_code=404, detail="Country is not covered by MCHO.")
+    return country
 
 
 def _freshness(db: Session, background: BackgroundTasks) -> dict:
@@ -43,12 +50,13 @@ def thermal_detections(
     west: float = Query(ge=-180, le=180), south: float = Query(ge=-90, le=90),
     east: float = Query(ge=-180, le=180), north: float = Query(ge=-90, le=90),
     hours: int = Query(default=24, ge=1, le=72),
+    country: str | None = Query(default=None, pattern=COUNTRY_PATTERN, description="ISO 3166-1 alpha-3 code"),
     db: Session = Depends(get_db),
 ):
     if south >= north or west >= east:
         raise HTTPException(status_code=400, detail="Invalid bbox; antimeridian-crossing boxes are not supported.")
     now = datetime.now(timezone.utc)
-    payload = detections_geojson(db, now, hours, (west, south, east, north))
+    payload = detections_geojson(db, now, hours, (west, south, east, north), _known_country(db, country))
     payload["freshness"] = _freshness(db, background)
     payload["response_generated_at"] = now.isoformat()
     return payload
@@ -58,8 +66,27 @@ def thermal_detections(
 def thermal_insights(
     background: BackgroundTasks,
     hours: int = Query(default=24, ge=6, le=72),
+    country: str | None = Query(default=None, pattern=COUNTRY_PATTERN, description="Limit clusters to one country"),
     db: Session = Depends(get_db),
 ):
-    payload = insights(db, datetime.now(timezone.utc), hours)
+    payload = insights(db, datetime.now(timezone.utc), hours, _known_country(db, country))
+    payload["freshness"] = _freshness(db, background)
+    return payload
+
+
+@router.get("/countries")
+def thermal_countries(db: Session = Depends(get_db)):
+    """Countries MCHO covers, with bounding boxes for map navigation."""
+    return {"items": country_list(db)}
+
+
+@router.get("/countries/{iso_a3}/trend")
+def thermal_country_trend(
+    background: BackgroundTasks,
+    iso_a3: str = Path(pattern=COUNTRY_PATTERN),
+    days: int = Query(default=21, ge=7, le=21),
+    db: Session = Depends(get_db),
+):
+    payload = country_trend(db, datetime.now(timezone.utc), _known_country(db, iso_a3), days)
     payload["freshness"] = _freshness(db, background)
     return payload

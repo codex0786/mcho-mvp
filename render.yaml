@@ -60,3 +60,7 @@ services:
         sync: false
       - key: OIDC_ALGORITHMS
         value: RS256
+      # NASA FIRMS MAP_KEY for satellite heat detections (docs/satellite-thermal.md).
+      # A credential: enter it in the Render dashboard, never in this file.
+      - key: NASA_FIRMS_API_KEY
+        sync: false

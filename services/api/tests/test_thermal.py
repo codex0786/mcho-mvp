@@ -118,7 +118,8 @@ def test_refresh_stores_in_region_detections_once_and_is_throttled(db, monkeypat
 
     def handler(request):
         requests.append(request.url.path.replace(KEY, "KEY"))
-        return httpx.Response(200, text=body)
+        # Each product is a different satellite; only Suomi NPP saw these fires.
+        return httpx.Response(200, text=body if "/VIIRS_SNPP_NRT/" in request.url.path else _csv())
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     first = refresh_thermal(db, client, now)

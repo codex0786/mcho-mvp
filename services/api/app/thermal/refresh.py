@@ -161,7 +161,12 @@ def refresh_in_background() -> None:
 
     try:
         with SessionLocal() as db, httpx.Client(follow_redirects=False) as client:
-            refresh_thermal(db, client)
+            result = refresh_thermal(db, client)
+            if result is not None and result.status == "succeeded":
+                # Last year's archive for year-on-year comparison; failures never affect the live feed.
+                from app.thermal.history import refresh_history
+
+                refresh_history(db, client)
     except Exception:
         logger.exception("thermal_refresh_crashed")
     finally:

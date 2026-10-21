@@ -37,6 +37,8 @@ export default function About() {
           A country is marked <strong>above normal</strong> when it has at least 10 non-persistent detections in the time window and at least twice
           its daily average over the previous 7 days. <strong>New-activity clusters</strong> group new detections that fall within the same ~10 km area.
           The country trend chart shows each day of the last three weeks; days before collection started show as &ldquo;no data&rdquo;, never as zero.
+          It also marks each day&apos;s total on the <strong>same calendar day last year</strong>, from NASA&apos;s FIRMS archive, counting only the
+          satellites available in both years — the clearest way to tell an unusual week from a normal burning season.
         </p>
 
         <h2>Looking at the ground</h2>

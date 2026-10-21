@@ -44,6 +44,7 @@ def test_parse_csv_keeps_valid_rows_and_rejects_malformed_ones():
 def test_area_url_validates_inputs_and_supports_backfill_dates():
     url = build_area_url(KEY, "VIIRS_NOAA20_NRT", "-18,8,64,40", 5, datetime(2026, 10, 11).date())
     assert url.endswith(f"/{KEY}/VIIRS_NOAA20_NRT/-18,8,64,40/5/2026-10-11")
+    assert "/VIIRS_SNPP_SP/" in build_area_url(KEY, "VIIRS_SNPP_SP", "-18,8,64,40", 5, datetime(2025, 10, 1).date())
     for bad in [("bad/key", "VIIRS_SNPP_NRT", 1), (KEY, "LANDSAT_NRT", 1), (KEY, "VIIRS_SNPP_NRT", 6)]:
         with pytest.raises(FirmsError):
             build_area_url(bad[0], bad[1], "-18,8,64,40", bad[2])

@@ -14,6 +14,8 @@ import httpx
 
 FIRMS_AREA_CSV = "https://firms.modaps.eosdis.nasa.gov/api/area/csv"
 NRT_PRODUCTS = frozenset({"VIIRS_SNPP_NRT", "VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT", "MODIS_NRT"})
+# Standard-processing archive products, used for last year's comparison.
+ARCHIVE_PRODUCTS = frozenset({"VIIRS_SNPP_SP", "VIIRS_NOAA20_SP", "VIIRS_NOAA21_SP", "MODIS_SP"})
 SATELLITE_NAMES = {"N": "Suomi NPP", "N20": "NOAA-20", "N21": "NOAA-21", "Terra": "Terra", "Aqua": "Aqua", "T": "Terra", "A": "Aqua"}
 _MAP_KEY = re.compile(r"^[A-Za-z0-9]{16,64}$")
 MAX_DAY_RANGE = 5
@@ -36,7 +38,7 @@ def parse_area(value: str) -> tuple[float, float, float, float]:
 def build_area_url(map_key: str, product: str, area: str, day_range: int, start: date | None = None) -> str:
     if not _MAP_KEY.fullmatch(map_key):
         raise FirmsError("The FIRMS MAP_KEY is not in the expected format.")
-    if product not in NRT_PRODUCTS:
+    if product not in NRT_PRODUCTS | ARCHIVE_PRODUCTS:
         raise FirmsError(f"Unsupported FIRMS product: {product}.")
     if not 1 <= day_range <= MAX_DAY_RANGE:
         raise FirmsError(f"FIRMS day range must be 1-{MAX_DAY_RANGE}.")

@@ -8,8 +8,14 @@ import { THERMAL_COLOURS } from "./RegionalMap";
 type Point = {
   date: string; covered: boolean; partial: boolean;
   total: number | null; persistent: number | null; other: number | null; max_frp_mw: number | null;
+  comparable_total?: number | null; last_year_total?: number | null;
 };
-type Trend = { iso_a3: string; name: string; days: number; series: Point[]; persistent_rule: string; coverage_note: string };
+type YearOnYear = { days: number; this_year: number; last_year: number; ratio: number | null };
+type Trend = {
+  iso_a3: string; name: string; days: number; series: Point[]; persistent_rule: string; coverage_note: string;
+  year_on_year_7d?: YearOnYear | null; comparison_note?: string;
+};
+const LAST_YEAR_COLOUR = "#e8eef6";
 
 // Dry-season burning (savanna and agricultural fires) dominates detections here from
 // roughly October to March, so high counts in that period are expected.
@@ -43,7 +49,9 @@ export default function CountryTrend({ iso3, onClose }: { iso3: string; onClose:
 
   if (!trend) return <section className="trend" aria-label="Country trend"><div className="empty" role="status">{message}</div></section>;
 
-  const max = Math.max(1, ...trend.series.map((p) => p.total ?? 0));
+  const max = Math.max(1, ...trend.series.map((p) => Math.max(p.total ?? 0, p.last_year_total ?? 0)));
+  const yoy = trend.year_on_year_7d ?? null;
+  const lastYear = trend.series.length ? Number(trend.series[0].date.slice(0, 4)) - 1 : null;
   const barWidth = WIDTH / trend.series.length - BAR_GAP;
   const covered = trend.series.filter((p) => p.covered && !p.partial);
   const recent = covered.slice(-7).reduce((sum, p) => sum + (p.other ?? 0), 0);
@@ -60,6 +68,12 @@ export default function CountryTrend({ iso3, onClose }: { iso3: string; onClose:
         <p className="trend-summary">
           Activity (excluding persistent sites): <strong>{recent}</strong> detections in the last 7 full days vs <strong>{earlier}</strong> the week before
           {earlier > 0 ? ` (${recent >= earlier ? "+" : ""}${Math.round(((recent - earlier) / earlier) * 100)}%)` : ""}.
+        </p>
+      )}
+      {yoy && (
+        <p className="trend-summary">
+          Same days last year: <strong>{yoy.this_year}</strong> detections in the last {yoy.days} full days vs <strong>{yoy.last_year}</strong> in {lastYear}
+          {yoy.ratio !== null ? ` (${yoy.ratio >= 1 ? "+" : ""}${Math.round((yoy.ratio - 1) * 100)}%)` : ""}, counting the same satellites and persistent sites.
         </p>
       )}
       {SEASONAL_BURNING.has(trend.iso_a3) && (
@@ -84,9 +98,12 @@ export default function CountryTrend({ iso3, onClose }: { iso3: string; onClose:
           const persistentHeight = ((p.persistent ?? 0) / max) * HEIGHT;
           return (
             <g key={p.date} opacity={p.partial ? 0.55 : 1}>
-              <title>{`${shortDate(p.date)}${p.partial ? " (so far today)" : ""}: ${p.other} activity, ${p.persistent} at persistent sites`}</title>
+              <title>{`${shortDate(p.date)}${p.partial ? " (so far today)" : ""}: ${p.other} activity, ${p.persistent} at persistent sites${p.last_year_total != null ? `; same day last year ${p.last_year_total} (this year, same satellites: ${p.comparable_total})` : ""}`}</title>
               <rect x={x} y={HEIGHT - persistentHeight} width={barWidth} height={persistentHeight} fill={THERMAL_COLOURS.persistent} />
               <rect x={x} y={HEIGHT - persistentHeight - otherHeight} width={barWidth} height={otherHeight} fill={THERMAL_COLOURS.new} />
+              {p.last_year_total != null && (
+                <rect className="trend-last-year" x={x - 1} y={HEIGHT - (p.last_year_total / max) * HEIGHT - 1} width={barWidth + 2} height={2} fill={LAST_YEAR_COLOUR} />
+              )}
             </g>
           );
         })}
@@ -98,22 +115,24 @@ export default function CountryTrend({ iso3, onClose }: { iso3: string; onClose:
         <span><i style={{ background: THERMAL_COLOURS.new }} />Activity</span>
         <span><i style={{ background: THERMAL_COLOURS.persistent }} />Persistent sites</span>
         <span><i className="trend-legend-nodata" />No data</span>
+        {trend.series.some((p) => p.last_year_total != null) && <span><i style={{ background: LAST_YEAR_COLOUR, height: 3 }} />Same day last year (total)</span>}
       </div>
       <details className="insights-method">
         <summary>Daily numbers and notes</summary>
         <table className="insights-table">
-          <thead><tr><th>Day (UTC)</th><th>Activity</th><th>Persistent</th></tr></thead>
+          <thead><tr><th>Day (UTC)</th><th>Activity</th><th>Persistent</th><th>Last year</th></tr></thead>
           <tbody>
             {[...trend.series].reverse().map((p) => (
               <tr key={p.date}>
                 <td>{shortDate(p.date)}{p.partial ? " (so far)" : ""}</td>
                 <td>{p.covered ? p.other : "no data"}</td>
                 <td>{p.covered ? p.persistent : "—"}</td>
+                <td>{p.last_year_total ?? "—"}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        <p>{trend.persistent_rule} {trend.coverage_note}</p>
+        <p>{trend.persistent_rule} {trend.coverage_note} {trend.comparison_note ?? ""}</p>
       </details>
     </section>
   );

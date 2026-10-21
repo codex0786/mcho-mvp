@@ -1,10 +1,10 @@
 import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from geoalchemy2 import Geometry
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -334,3 +334,23 @@ class ThermalRefresh(Base):
     rows_received: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     rows_stored: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_summary: Mapped[str | None] = mapped_column(Text)
+
+
+class ThermalHistoryDaily(Base):
+    """Last-year daily detection counts per country and satellite, from the FIRMS archive."""
+    __tablename__ = "thermal_history_daily"
+    country_code: Mapped[str] = mapped_column(ForeignKey("country_boundaries.iso_a3", ondelete="RESTRICT"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    # The current NRT product family this archive row stands in for, e.g. VIIRS_SNPP_NRT.
+    product: Mapped[str] = mapped_column(String(40), primary_key=True)
+    detections: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class ThermalHistoryFetch(Base):
+    """A (product, day) whose archive was fetched: zero counts on fetched days are real zeros."""
+    __tablename__ = "thermal_history_fetches"
+    product: Mapped[str] = mapped_column(String(40), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    source_product: Mapped[str] = mapped_column(String(40), nullable=False)
+    rows: Mapped[int] = mapped_column(Integer, nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)

@@ -34,3 +34,5 @@ jobs:
           done
           echo "The API did not respond within about 4 minutes." >&2
           exit 1
+      - name: Trigger the shipping refresh if PortWatch data is stale
+        run: curl --silent --show-error --fail --max-time 60 --output /dev/null "$API_URL/api/v1/maritime/overview"

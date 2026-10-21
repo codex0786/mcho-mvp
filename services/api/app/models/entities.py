@@ -233,7 +233,10 @@ class SatelliteScene(Base):
 
 class MaritimeAggregate(Base):
     __tablename__ = "maritime_aggregates"
-    __table_args__ = (Index("ix_maritime_area_period", "area_id", "period_start", "period_end"),)
+    __table_args__ = (
+        Index("ix_maritime_area_period", "area_id", "period_start", "period_end"),
+        UniqueConstraint("area_id", "period_start", "metric", name="uq_maritime_aggregate_metric"),
+    )
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     area_id: Mapped[str] = mapped_column(String(120), nullable=False)
     period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -354,3 +357,27 @@ class ThermalHistoryFetch(Base):
     source_product: Mapped[str] = mapped_column(String(40), nullable=False)
     rows: Mapped[int] = mapped_column(Integer, nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class MaritimeArea(Base):
+    """A chokepoint or port with published aggregate traffic (IMF PortWatch)."""
+    __tablename__ = "maritime_areas"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)  # PortWatch portid, e.g. chokepoint4
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)  # chokepoint | port
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    country_code: Mapped[str | None] = mapped_column(String(3))
+    geometry = mapped_column(Geometry(geometry_type="POINT", srid=4326, spatial_index=False), nullable=False)
+    reference_vessels_per_year: Mapped[int | None] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class MaritimeRefresh(Base):
+    """One attempt to pull IMF PortWatch aggregates."""
+    __tablename__ = "maritime_refreshes"
+    __table_args__ = (Index("ix_maritime_refreshes_started_at", "started_at"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
+    rows_stored: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_summary: Mapped[str | None] = mapped_column(Text)

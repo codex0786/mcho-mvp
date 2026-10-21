@@ -47,14 +47,16 @@ services:
       # limited to the public web origin.
       - key: CORS_ORIGINS
         value: https://mcho-mvp.vercel.app
-      # Sign-in is not configured yet: reviewer/publisher/admin endpoints fail closed (503).
+      # Sign-in (docs/auth0-setup.md). Set these in the Render dashboard; sync: false
+      # keeps Blueprint syncs from overwriting them. Until set, reviewer/publisher/
+      # admin endpoints fail closed (503).
       - key: OIDC_ISSUER
-        value: ""
+        sync: false
       - key: OIDC_AUDIENCE
-        value: ""
+        sync: false
       - key: OIDC_JWKS_URL
-        value: ""
+        sync: false
       - key: OIDC_ROLE_CLAIM
-        value: roles
+        sync: false
       - key: OIDC_ALGORITHMS
         value: RS256

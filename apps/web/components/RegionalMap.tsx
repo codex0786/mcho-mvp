@@ -12,6 +12,16 @@ type EventCollection = {
 const API = process.env.NEXT_PUBLIC_API_BASE_URL ||
   (process.env.NODE_ENV === "development" ? "http://localhost:8000/api/v1" : "/api/backend/api/v1");
 const STYLE = process.env.NEXT_PUBLIC_MAP_STYLE_URL || "";
+// Free hosting sleeps when idle and takes about a minute to wake; the proxy gives up
+// sooner (502/504). Retry these responses with growing delays (~90 s in total).
+const WAKE_RETRY_DELAYS_MS = [3_000, 6_000, 10_000, 15_000, 20_000, 20_000, 20_000];
+const RETRYABLE_STATUSES = new Set([502, 503, 504]);
+
+class RetryableApiError extends Error {}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export default function RegionalMap() {
   const container = useRef<HTMLDivElement>(null);
@@ -20,6 +30,8 @@ export default function RegionalMap() {
   // Tracked separately so a data status is not overwritten while tiles are still arriving.
   const [basemapLoading, setBasemapLoading] = useState(false);
   const [events, setEvents] = useState<EventFeature[]>([]);
+  // Incremented by every refresh and on unmount, so superseded retries stop quietly.
+  const refreshGeneration = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -104,6 +116,7 @@ export default function RegionalMap() {
     void initialize();
     return () => {
       cancelled = true;
+      refreshGeneration.current += 1;
       if (refreshButton && handler) refreshButton.removeEventListener("click", handler);
       instance?.remove();
       map.current = null;
@@ -127,9 +140,28 @@ export default function RegionalMap() {
       if (to) url.searchParams.set("to", `${to}T23:59:59Z`);
       const verification = (document.getElementById("verification") as HTMLSelectElement | null)?.value;
       if (verification) url.searchParams.set("verification_status", verification);
-      const response = await fetch(url.toString(), { cache: "no-store" });
-      if (!response.ok) throw new Error(`API returned HTTP ${response.status}`);
-      const data = await response.json() as EventCollection;
+      const generation = ++refreshGeneration.current;
+      let data: EventCollection | null = null;
+      for (let attempt = 0; data === null; attempt += 1) {
+        try {
+          let response: Response;
+          try {
+            response = await fetch(url.toString(), { cache: "no-store" });
+          } catch {
+            throw new RetryableApiError("the API could not be reached");
+          }
+          if (RETRYABLE_STATUSES.has(response.status)) throw new RetryableApiError(`API returned HTTP ${response.status}`);
+          if (!response.ok) throw new Error(`API returned HTTP ${response.status}`);
+          data = await response.json() as EventCollection;
+        } catch (err) {
+          if (!(err instanceof RetryableApiError) || attempt >= WAKE_RETRY_DELAYS_MS.length) throw err;
+          if (generation !== refreshGeneration.current) return;
+          setStatus("The API is waking up (free hosting can take about a minute). Retrying…");
+          await wait(WAKE_RETRY_DELAYS_MS[attempt]);
+          if (generation !== refreshGeneration.current) return;
+        }
+      }
+      if (generation !== refreshGeneration.current) return;
       const source = instance.getSource("events") as maplibregl.GeoJSONSource | undefined;
       source?.setData(data as GeoJSON.FeatureCollection);
       setEvents(data.features || []);

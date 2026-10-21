@@ -92,7 +92,7 @@ before(async () => {
 after(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   for (const key of [
-    "NODE_ENV", "MCHO_OIDC_AUTHORITY", "MCHO_OIDC_CLIENT_ID", "MCHO_OIDC_RESOURCE",
+    "NODE_ENV", "MCHO_OIDC_AUTHORITY", "MCHO_OIDC_CLIENT_ID", "MCHO_OIDC_RESOURCE", "MCHO_OIDC_AUDIENCE",
     "MCHO_WEB_ORIGIN", "MCHO_API_ORIGIN",
   ]) {
     if (originalEnv[key] === undefined) delete process.env[key];
@@ -116,6 +116,7 @@ test("OIDC login starts code flow with S256 PKCE and callback exchanges verifier
   assert.equal(redirect.searchParams.get("response_type"), "code");
   assert.equal(redirect.searchParams.get("code_challenge_method"), "S256");
   assert.equal(redirect.searchParams.get("resource"), "mcho-api");
+  assert.equal(redirect.searchParams.get("audience"), null);
   assert.equal(redirect.searchParams.get("redirect_uri"), "http://localhost:3000/api/auth/callback");
 
   const state = getCookie(login, "mcho_oidc_state");
@@ -143,6 +144,19 @@ test("OIDC login starts code flow with S256 PKCE and callback exchanges verifier
   assert.equal(accessCookie.value, "api-access-token-test");
   assert.ok((accessCookie.maxAge ?? 0) <= 300);
   assert.equal(callback.cookies.get("mcho_oidc_state")?.maxAge, 0);
+});
+
+test("OIDC login sends an Auth0-style audience when MCHO_OIDC_AUDIENCE is set", async () => {
+  process.env.MCHO_OIDC_AUDIENCE = "https://api.mcho.example";
+  try {
+    const login = await oidcLogin(new NextRequest("http://localhost:3000/api/auth/login"));
+    assert.equal(login.status, 302);
+    const redirect = new URL(login.headers.get("location") ?? "");
+    assert.equal(redirect.searchParams.get("audience"), "https://api.mcho.example");
+    assert.equal(redirect.searchParams.get("code_challenge_method"), "S256");
+  } finally {
+    delete process.env.MCHO_OIDC_AUDIENCE;
+  }
 });
 
 test("OIDC callback rejects a state mismatch without exchanging the code", async () => {

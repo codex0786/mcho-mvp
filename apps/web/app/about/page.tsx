@@ -39,6 +39,13 @@ export default function About() {
           The country trend chart shows each day of the last three weeks; days before collection started show as &ldquo;no data&rdquo;, never as zero.
         </p>
 
+        <h2>Looking at the ground</h2>
+        <p>
+          For each new-activity cluster, &ldquo;Satellite image&rdquo; shows recent Copernicus Sentinel-2 pictures of the area, with a link to view them at
+          full 10 m resolution. Sentinel-2 is a different satellite: it passes roughly every five days, so its image can be from before or after the
+          heat was detected, and clouds or smoke can hide the ground. Burn scars and smoke are often visible; small or short fires may not be.
+        </p>
+
         <h2>What it can&apos;t tell you</h2>
         <ul>
           <li><strong>The cause.</strong> Heat can come from fighting, shelling-related fires, crop and stubble burning, wildfires, waste burning
@@ -59,6 +66,7 @@ export default function About() {
         <h2>Sources and credits</h2>
         <ul>
           <li>Satellite detections: NASA FIRMS, VIIRS 375 m near-real-time products (NASA open data).</li>
+          <li>Imagery: Copernicus Sentinel-2 L2A (free and open), found via <a className="text-link" href="https://earth-search.aws.element84.com/v1" target="_blank" rel="noreferrer">Earth Search</a> (Element 84, AWS Open Data); full-resolution viewing in Copernicus Browser.</li>
           <li>Country borders: <a className="text-link" href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a> 1:50m (public domain).</li>
           <li>Basemap: <a className="text-link" href="https://openfreemap.org/" target="_blank" rel="noreferrer">OpenFreeMap</a>, map data © OpenStreetMap contributors.</li>
         </ul>

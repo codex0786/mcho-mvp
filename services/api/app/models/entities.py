@@ -282,3 +282,55 @@ class AuditLog(Base):
     subject_id: Mapped[str] = mapped_column(String(160), nullable=False)
     detail: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class CountryBoundary(Base):
+    """Natural Earth 1:50m borders for the MENA countries MCHO reports on (public domain)."""
+    __tablename__ = "country_boundaries"
+    __table_args__ = (Index("ix_country_boundaries_geometry", "geometry", postgresql_using="gist"),)
+    iso_a3: Mapped[str] = mapped_column(String(3), primary_key=True)
+    iso_a2: Mapped[str] = mapped_column(String(2), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    geometry = mapped_column(Geometry(geometry_type="MULTIPOLYGON", srid=4326, spatial_index=False), nullable=False)
+
+
+class ThermalDetection(Base):
+    """A satellite heat detection from NASA FIRMS. An observation, not a verified event."""
+    __tablename__ = "thermal_detections"
+    __table_args__ = (
+        UniqueConstraint("product", "acquired_at", "latitude", "longitude", name="uq_thermal_detection_observation"),
+        Index("ix_thermal_detections_acquired_at", "acquired_at"),
+        Index("ix_thermal_detections_country_acquired", "country_code", "acquired_at"),
+        Index("ix_thermal_detections_geometry", "geometry", postgresql_using="gist"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    product: Mapped[str] = mapped_column(String(40), nullable=False)
+    satellite: Mapped[str] = mapped_column(String(20), nullable=False)
+    instrument: Mapped[str] = mapped_column(String(20), nullable=False)
+    acquired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    latitude: Mapped[float] = mapped_column(nullable=False)
+    longitude: Mapped[float] = mapped_column(nullable=False)
+    geometry = mapped_column(Geometry(geometry_type="POINT", srid=4326, spatial_index=False), nullable=False)
+    country_code: Mapped[str] = mapped_column(ForeignKey("country_boundaries.iso_a3", ondelete="RESTRICT"), nullable=False)
+    brightness_ti4: Mapped[float | None] = mapped_column()
+    brightness_ti5: Mapped[float | None] = mapped_column()
+    frp: Mapped[float | None] = mapped_column()
+    scan: Mapped[float | None] = mapped_column()
+    track: Mapped[float | None] = mapped_column()
+    confidence: Mapped[str] = mapped_column(String(10), nullable=False)
+    daynight: Mapped[str] = mapped_column(String(1), nullable=False)
+    version: Mapped[str] = mapped_column(String(20), nullable=False)
+    ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class ThermalRefresh(Base):
+    """One attempt to pull NASA FIRMS data; drives freshness reporting and refresh throttling."""
+    __tablename__ = "thermal_refreshes"
+    __table_args__ = (Index("ix_thermal_refreshes_started_at", "started_at"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
+    rows_received: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rows_stored: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_summary: Mapped[str | None] = mapped_column(Text)

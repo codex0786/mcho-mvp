@@ -1,5 +1,6 @@
 from urllib.parse import quote
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,6 +29,14 @@ class Settings(BaseSettings):
     # Active ingestion runs older than this are treated as abandoned (worker crash).
     ingestion_stale_run_minutes: int = 60
     cors_origins: str = "http://localhost:3000"
+    # NASA FIRMS satellite heat detections (docs/satellite-thermal.md). The key is a
+    # free FIRMS MAP_KEY; without it the thermal endpoints report "not configured".
+    nasa_firms_api_key: str = Field(default="", validation_alias=AliasChoices("NASA_FIRMS_API_KEY", "FIRMS_MAP_KEY"))
+    firms_products: str = "VIIRS_SNPP_NRT,VIIRS_NOAA20_NRT,VIIRS_NOAA21_NRT"
+    # west,south,east,north; detections are kept only inside the MENA country borders.
+    firms_area: str = "-18,8,64,40"
+    firms_refresh_minutes: int = 45
+    firms_retention_days: int = 21
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

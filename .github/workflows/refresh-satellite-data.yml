@@ -1,0 +1,36 @@
+name: Refresh satellite data
+
+# The free hosting tier has no background worker. Requesting the public insights
+# endpoint wakes the API, and the API pulls new NASA FIRMS detections in the
+# background when its data is older than FIRMS_REFRESH_MINUTES. No secrets needed.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh-satellite-data
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      API_URL: ${{ vars.MCHO_API_URL || 'https://mcho-api.onrender.com' }}
+    steps:
+      - name: Wake the API and trigger a refresh if data is stale
+        run: |
+          for attempt in $(seq 1 12); do
+            if curl --silent --show-error --fail --max-time 60 --output insights.json "$API_URL/api/v1/thermal/insights"; then
+              python3 -c "import json; d = json.load(open('insights.json')); f = d['freshness']; print('configured:', f['configured'], '| refresh scheduled:', f['refresh_scheduled'], '| latest detection:', d['latest_detection_at'], '| last refresh:', f['last_successful_refresh_at'])"
+              exit 0
+            fi
+            echo "API not ready (attempt $attempt); waiting for it to wake…"
+            sleep 15
+          done
+          echo "The API did not respond within about 4 minutes." >&2
+          exit 1

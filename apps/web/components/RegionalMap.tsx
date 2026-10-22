@@ -5,6 +5,7 @@ import maplibregl, { Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import { apiUrl, getJsonWithWake, utcTime } from "../lib/api";
+import { changeColour, type MaritimeArea } from "./ShippingPanel";
 
 type EventFeature = { type: "Feature"; id: string; geometry: GeoJSON.Geometry; properties: Record<string, unknown> };
 type EventCollection = {
@@ -23,6 +24,8 @@ type Props = {
   // Incremented by the Refresh button.
   refreshKey: number;
   onEvents?: (events: PublishedEvent[]) => void;
+  // Chokepoints and ports with aggregate traffic (IMF PortWatch).
+  maritime?: { chokepoints: MaritimeArea[]; ports: MaritimeArea[] } | null;
 };
 const REGION_VIEW = { center: [39, 27] as [number, number], zoom: 3.2 };
 
@@ -33,7 +36,7 @@ export const TRACK_COLOUR = "#7fd3ff";
 export const TRACK_DAYS = 7;
 const CONFIDENCE = { l: "low", n: "nominal", h: "high" } as Record<string, string>;
 
-export default function RegionalMap({ hours, country, focus, refreshKey, onEvents }: Props) {
+export default function RegionalMap({ hours, country, focus, refreshKey, onEvents, maritime }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const [status, setStatus] = useState("Loading map configuration…");
@@ -45,8 +48,8 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
   const thermalGeneration = useRef(0);
   const trackGeneration = useRef(0);
   // Latest props for map callbacks that are registered once.
-  const filters = useRef({ hours, country, onEvents });
-  filters.current = { hours, country, onEvents };
+  const filters = useRef({ hours, country, onEvents, maritime });
+  filters.current = { hours, country, onEvents, maritime };
   const styleReady = useRef(false);
 
   useEffect(() => {
@@ -122,6 +125,15 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
           id: "track-heads", type: "circle", source: "track-heads",
           paint: { "circle-radius": 5, "circle-color": TRACK_COLOUR, "circle-stroke-color": "#06121c", "circle-stroke-width": 2 },
         });
+        instance.addSource("maritime", { type: "geojson", data: maritimeGeoJson(filters.current.maritime) });
+        instance.addLayer({
+          id: "maritime-points", type: "circle", source: "maritime",
+          paint: {
+            "circle-radius": ["case", ["==", ["get", "kind"], "chokepoint"], 9, 4],
+            "circle-color": ["get", "colour"], "circle-opacity": ["case", ["==", ["get", "kind"], "chokepoint"], 0.25, 0.9],
+            "circle-stroke-color": ["get", "colour"], "circle-stroke-width": ["case", ["==", ["get", "kind"], "chokepoint"], 2.5, 1],
+          },
+        });
         instance.addSource("events", {
           type: "geojson",
           data: { type: "FeatureCollection", features: [] },
@@ -181,9 +193,19 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
           + `${escapeHtml(String(p.detections))} detections<br/><em>Shows how heat moved, not what caused it.</em>`,
         ).addTo(instance!);
       };
+      instance.on("click", "maritime-points", (e) => {
+        const p = e.features?.[0]?.properties;
+        if (!p) return;
+        const change = p.change === null || p.change === undefined || p.change === "null" ? "no comparison with last year" : `${Number(p.change) > 0 ? "+" : ""}${p.change}% vs the same days last year`;
+        new maplibregl.Popup({ maxWidth: "260px" }).setLngLat(e.lngLat).setHTML(
+          `<strong>${escapeHtml(String(p.name))}</strong> (${p.kind === "chokepoint" ? "chokepoint" : "port"})<br/>`
+          + `${p.avg === null || p.avg === "null" ? "No recent figure" : `${escapeHtml(String(p.avg))} ${p.kind === "chokepoint" ? "transits" : "port calls"}/day`} (last 7 days)<br/>`
+          + `${escapeHtml(change)}<br/><em>Source: IMF PortWatch (AIS-based aggregate).</em>`,
+        ).addTo(instance!);
+      });
       instance.on("click", "track-lines", trackPopup);
       instance.on("click", "track-heads", trackPopup);
-      for (const layer of ["thermal-points", "event-points", "track-lines", "track-heads"]) {
+      for (const layer of ["thermal-points", "event-points", "track-lines", "track-heads", "maritime-points"]) {
         instance.on("mouseenter", layer, () => { if (instance) instance.getCanvas().style.cursor = "pointer"; });
         instance.on("mouseleave", layer, () => { if (instance) instance.getCanvas().style.cursor = ""; });
       }
@@ -226,6 +248,11 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
     if (focus) instance.fitBounds([[focus[0], focus[1]], [focus[2], focus[3]]], { padding: 40, maxZoom: 8 });
     else instance.easeTo(REGION_VIEW);
   }, [focus]);
+
+  useEffect(() => {
+    const source = map.current && styleReady.current ? map.current.getSource("maritime") as maplibregl.GeoJSONSource | undefined : undefined;
+    source?.setData(maritimeGeoJson(maritime));
+  }, [maritime]);
 
   function bounds(instance: MapLibreMap) {
     const b = instance.getBounds();
@@ -319,6 +346,7 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
         <span><i style={{ background: THERMAL_COLOURS.recurring }}/>Recurring</span>
         <span><i style={{ background: THERMAL_COLOURS.persistent }}/>Persistent site</span>
         <span><i className="legend-line" style={{ background: TRACK_COLOUR }}/>Moving front, {TRACK_DAYS} days</span>
+        <span><i className="legend-ring"/>Shipping chokepoint / port</span>
         <small>Size = fire intensity. Unverified.</small>
       </div>
       <div className="map-status">
@@ -331,4 +359,19 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] || char);
+}
+
+function maritimeGeoJson(maritime: Props["maritime"]): GeoJSON.FeatureCollection {
+  const areas = [
+    ...(maritime?.chokepoints ?? []).map((a) => ({ ...a, kind: "chokepoint" })),
+    ...(maritime?.ports ?? []).map((a) => ({ ...a, kind: "port" })),
+  ];
+  return {
+    type: "FeatureCollection",
+    features: areas.map((a) => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [a.longitude, a.latitude] },
+      properties: { name: a.name, kind: a.kind, avg: a.avg_7d, change: a.change_vs_last_year_pct, colour: changeColour(a.change_vs_last_year_pct) },
+    })),
+  };
 }

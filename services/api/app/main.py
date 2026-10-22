@@ -4,10 +4,12 @@ import re
 import sys
 import time
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from app.core import keep_warm
 from app.core.config import settings
 from app.routers import auth, conflict, damage, events, health, ingestion, maritime, observations, reviews, sentinel2, sources, thermal
 
@@ -29,7 +31,18 @@ def configure_app_logging(level_name: str) -> logging.Logger:
 
 configure_app_logging(settings.log_level)
 
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    stop = keep_warm.start(settings.keep_warm_url, settings.keep_warm_minutes)
+    yield
+    if stop:
+        stop.set()
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="MCHO API",
     version="0.1.0",
     description=("Evidence-first MENA humanitarian and geospatial observatory API. "

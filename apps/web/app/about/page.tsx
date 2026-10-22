@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 
+import SiteFooter from "../../components/SiteFooter";
+import SiteNav from "../../components/SiteNav";
+
 export const metadata: Metadata = {
   title: "About the data | MCHO",
   description: "Where MCHO's satellite data comes from, how it is analysed, and what it can and cannot tell you.",
@@ -7,10 +10,12 @@ export const metadata: Metadata = {
 
 export default function About() {
   return (
+    <>
+    <SiteNav page="about" />
     <main className="shell about">
       <header className="topbar">
         <div><div className="eyebrow">ABOUT THE DATA</div><h1>How MCHO reads satellite heat</h1></div>
-        <nav className="header-actions" aria-label="Site"><a className="text-link" href="/">← Back to the live map</a></nav>
+        <div className="header-actions"><a className="text-link" href="/">← Back to the live map</a></div>
       </header>
 
       <section className="notice"><strong>In one sentence:</strong> MCHO shows where NASA satellites detected unusual heat across the Middle
@@ -121,5 +126,7 @@ export default function About() {
         </p>
       </article>
     </main>
+    <SiteFooter />
+    </>
   );
 }

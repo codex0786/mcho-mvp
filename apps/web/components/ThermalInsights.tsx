@@ -35,9 +35,15 @@ function flyTo(detail: FlyToDetail) {
   document.querySelector(".map-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-type Props = { hours: number; country: string | null; onSelectCountry: (iso3: string) => void };
+type Props = {
+  hours: number; country: string | null; onSelectCountry: (iso3: string) => void;
+  // Lets the page header show the same totals without a second request.
+  onTotals?: (totals: Insights["totals"]) => void;
+};
 
-export default function ThermalInsights({ hours, country, onSelectCountry }: Props) {
+export default function ThermalInsights({ hours, country, onSelectCountry, onTotals }: Props) {
+  const totalsCallback = useRef(onTotals);
+  totalsCallback.current = onTotals;
   const [data, setData] = useState<Insights | null>(null);
   const [message, setMessage] = useState("Retrieving satellite insights…");
   const [imageryFor, setImageryFor] = useState<string | null>(null);
@@ -53,6 +59,7 @@ export default function ThermalInsights({ hours, country, onSelectCountry }: Pro
       if (!body) return;
       setData(body);
       setMessage("");
+      totalsCallback.current?.(body.totals);
     } catch (err) {
       if (current === generation.current) setMessage(`Satellite insights unavailable: ${err instanceof Error ? err.message : "unknown error"}.`);
     }

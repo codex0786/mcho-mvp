@@ -39,8 +39,11 @@
    25 km otherwise.
 3. **Data source:** NASA FIRMS area API, VIIRS NOAA-20 and Suomi NPP. The archive (SP) product is used where available,
    otherwise NRT, chosen with the FIRMS data-availability API.
-4. **Batching:** events within 1° and the same 7-day bin share requests. Each run has a budget of 40 FIRMS requests,
-   so the first backfill takes a few runs.
+4. **Batching:** events within 1° and the same 7-day bin share requests. Each run has a budget of 200 FIRMS requests
+   (FIRMS allows 5,000 per 10 minutes per key). While events are pending, a run is due every 10 minutes.
+   - Each run records the requests made and the detections FIRMS returned in the search boxes
+     (`freshness.last_attempt.heat_requests` / `heat_detections_fetched` in the API).
+   - This separates "FIRMS returned nothing" from "heat was nearby but did not match".
 5. **Persistent sites:** about 2 km cells with heat on at least 4 of the 7 days before the window (flares, industry)
    are counted separately and do not make a match. This is the same rule as the main heat map.
 6. **Result per event:** `heat`, `no_heat`, `persistent_only`, `pending` or `not_checkable`. It includes the detection

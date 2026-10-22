@@ -134,6 +134,7 @@ def test_refresh_stores_mena_events_and_cross_checks_heat(db, monkeypatch):  # n
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         first = refresh_ucdp(db, client, now=NOW)
         assert first.status == "succeeded" and first.rows_stored == 4 and first.heat_checked == 2
+        assert first.heat_requests == 8 and first.heat_detections_fetched == 1  # 2 groups x 2 satellites x 2 chunks
         assert refresh_ucdp(db, client, now=NOW + timedelta(hours=1)) is None  # throttled; nothing pending
         etag_sent = [r for r in requests if "GEDEvent_v26_0_9" in r]
     assert len(etag_sent) == 1
@@ -157,4 +158,4 @@ def test_refresh_stores_mena_events_and_cross_checks_heat(db, monkeypatch):  # n
 
 def test_heat_checks_wait_without_a_firms_key(db, monkeypatch):  # noqa: F811
     monkeypatch.setattr(settings, "nasa_firms_api_key", "")
-    assert heat_match.check_pending_events(db, httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500))), NOW) == 0
+    assert heat_match.check_pending_events(db, httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500))), NOW) == {"checked": 0, "requests": 0, "fetched": 0}

@@ -504,4 +504,6 @@ class UcdpRefresh(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
     rows_stored: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     heat_checked: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    heat_requests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    heat_detections_fetched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_summary: Mapped[str | None] = mapped_column(Text)

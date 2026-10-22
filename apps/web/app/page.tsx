@@ -11,7 +11,7 @@ export default function Home() {
           <a className="text-link" href="/demo">Design preview (sample data) →</a>
         </nav>
       </header>
-      <section className="notice" role="status"><strong>Data status:</strong> Satellite heat detections update about hourly from NASA FIRMS and are analysed automatically. They are unverified observations: a detection can be conflict-related fire, crop burning, wildfire or a gas flare. No human-verified events are published yet.</section>
+      <section className="notice" role="status"><strong>Data status:</strong> Satellite heat detections update about hourly from NASA FIRMS and are analysed automatically. They are unverified observations: a detection can be conflict-related fire, crop burning, wildfire or a gas flare. Verified conflict events and deaths come from UCDP&apos;s monthly releases, which run about 3–7 weeks behind the satellites; UN damage assessments come from UNOSAT.</section>
       <ObservatoryDashboard />
       <footer>Demonstration · Satellite data: NASA FIRMS (VIIRS) · Borders: Natural Earth · Basemap: OpenFreeMap / OpenStreetMap contributors · Not for tactical or targeting decisions.</footer>
     </main>

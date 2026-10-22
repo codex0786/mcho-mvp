@@ -38,3 +38,5 @@ jobs:
         run: curl --silent --show-error --fail --max-time 60 --output /dev/null "$API_URL/api/v1/maritime/overview"
       - name: Trigger the UNOSAT damage assessment sync if due
         run: curl --silent --show-error --fail --max-time 90 --output /dev/null "$API_URL/api/v1/damage/overview"
+      - name: Trigger the UCDP event sync and heat cross-checks if due
+        run: curl --silent --show-error --fail --max-time 90 --output /dev/null "$API_URL/api/v1/conflict/overview"

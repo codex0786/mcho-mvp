@@ -97,3 +97,7 @@ provider, basemap provider, ReliefWeb app-name application.
 - Automated event creation or publication from source text.
 - Real-time or vessel-level maritime tracking.
 - Any paid infrastructure, domain purchase or provider account creation.
+- Air traffic layer. OpenSky Network's terms (checked 2026-10-22) require a written licence for any use of its REST API
+  "in any live product, service, or automated system", even for non-profit organisations. The adsb.lol public API
+  (ODbL) is deprecated. An aggregate, delayed air-traffic layer (flights per airspace per day, never individual
+  aircraft) needs either a licence from OpenSky (contact@opensky-network.org) or another openly licensed source.

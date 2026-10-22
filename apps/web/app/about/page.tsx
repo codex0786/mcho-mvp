@@ -63,6 +63,21 @@ export default function About() {
           the 7-day averages and comparisons. Ships that switch off AIS aren&apos;t counted, and no individual ship is shown.
         </p>
 
+        <h2>Verified events and deaths</h2>
+        <p>
+          The Uppsala Conflict Data Program (UCDP) codes every incident of organised violence that kills at least one person, from news and
+          NGO reports: where and when, who fought whom, and how many died (a best estimate with a low–high range). MCHO shows UCDP&apos;s
+          monthly Candidate releases, which are preliminary and appear about three weeks after each month ends, and sums them by country and
+          month. A month that was not downloaded is shown as missing, never as zero.
+        </p>
+        <p>
+          <strong>Heat cross-check.</strong> For each UCDP event whose place is known to within about 25 km and date to within a few days,
+          MCHO fetches NASA FIRMS archive detections from two VIIRS satellites around it and records whether heat was seen within 5 km
+          (exact place) or 25 km, from the day before to the day after, leaving out persistent sites such as gas flares. This links a verified
+          event to a satellite signal; it does not prove the event caused the fire, and no heat does not mean nothing burned. MCHO also lists
+          today&apos;s moving heat fronts that lie within 25 km of UCDP events in the previous 180 days, as context rather than cause.
+        </p>
+
         <h2>UN damage assessments</h2>
         <p>
           The United Nations Satellite Centre (UNOSAT) compares satellite images taken before and after attacks and marks each building it
@@ -95,6 +110,7 @@ export default function About() {
           <li>Satellite detections: NASA FIRMS, VIIRS 375 m near-real-time products (NASA open data).</li>
           <li>Imagery: Copernicus Sentinel-2 L2A (free and open), found via <a className="text-link" href="https://earth-search.aws.element84.com/v1" target="_blank" rel="noreferrer">Earth Search</a> (Element 84, AWS Open Data); full-resolution viewing in Copernicus Browser.</li>
           <li>Shipping: Source: International Monetary Fund, <a className="text-link" href="https://portwatch.imf.org" target="_blank" rel="noreferrer">PortWatch</a> (daily chokepoint transits and port calls, AIS-based); averages and comparisons computed by MCHO.</li>
+          <li>Conflict events: <a className="text-link" href="https://ucdp.uu.se/downloads/" target="_blank" rel="noreferrer">UCDP Candidate Events Dataset</a>, Uppsala University, CC BY 4.0. Hegre, Croicu, Eck and Högbladh (2020), &ldquo;Introducing the UCDP Candidate Events Dataset&rdquo;, <em>Research &amp; Politics</em>.</li>
           <li>Damage assessments: United Nations Satellite Centre (UNOSAT), via the <a className="text-link" href="https://data.humdata.org/organization/unosat" target="_blank" rel="noreferrer">Humanitarian Data Exchange</a>, CC BY-SA; MCHO&apos;s ~500 m damage grid is shared under the same licence.</li>
           <li>Country borders: <a className="text-link" href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a> 1:50m (public domain).</li>
           <li>Basemap: <a className="text-link" href="https://openfreemap.org/" target="_blank" rel="noreferrer">OpenFreeMap</a>, map data © OpenStreetMap contributors.</li>

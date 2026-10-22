@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from geoalchemy2 import Geometry
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Enum, ForeignKey, Index, Integer, JSON, SmallInteger, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -434,4 +434,74 @@ class DamageRefresh(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
     rows_stored: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_summary: Mapped[str | None] = mapped_column(Text)
+
+
+class UcdpEvent(Base):
+    """A UCDP Candidate event (preliminary, monthly) in a MENA country, with its satellite heat cross-check."""
+    __tablename__ = "ucdp_events"
+    __table_args__ = (
+        Index("ix_ucdp_events_date_start", "date_start"),
+        Index("ix_ucdp_events_country", "country_code"),
+        Index("ix_ucdp_events_heat_status", "heat_status"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)  # UCDP id, stable across releases
+    relid: Mapped[str] = mapped_column(String(64), nullable=False)
+    release: Mapped[str] = mapped_column(String(20), nullable=False)
+    type_of_violence: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    conflict_name: Mapped[str] = mapped_column(Text, nullable=False)
+    dyad_name: Mapped[str] = mapped_column(Text, nullable=False)
+    side_a: Mapped[str] = mapped_column(Text, nullable=False)
+    side_b: Mapped[str] = mapped_column(Text, nullable=False)
+    where_description: Mapped[str | None] = mapped_column(Text)
+    adm_1: Mapped[str | None] = mapped_column(Text)
+    ucdp_country: Mapped[str] = mapped_column(String(120), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(3), nullable=False)
+    latitude: Mapped[float] = mapped_column(nullable=False)
+    longitude: Mapped[float] = mapped_column(nullable=False)
+    geometry = mapped_column(Geometry(geometry_type="POINT", srid=4326, spatial_index=False), nullable=False)
+    date_start: Mapped[date] = mapped_column(Date, nullable=False)
+    date_end: Mapped[date] = mapped_column(Date, nullable=False)
+    date_prec: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    where_prec: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    event_clarity: Mapped[int | None] = mapped_column(SmallInteger)
+    code_status: Mapped[str | None] = mapped_column(String(60))
+    deaths_best: Mapped[int] = mapped_column(Integer, nullable=False)
+    deaths_low: Mapped[int] = mapped_column(Integer, nullable=False)
+    deaths_high: Mapped[int] = mapped_column(Integer, nullable=False)
+    deaths_civilians: Mapped[int] = mapped_column(Integer, nullable=False)
+    number_of_sources: Mapped[int | None] = mapped_column(Integer)
+    heat_status: Mapped[str] = mapped_column(String(20), nullable=False)  # pending | heat | persistent_only | no_heat | not_checkable
+    heat_detections: Mapped[int | None] = mapped_column(Integer)
+    heat_persistent_excluded: Mapped[int | None] = mapped_column(Integer)
+    heat_max_frp: Mapped[float | None] = mapped_column()
+    heat_nearest_km: Mapped[float | None] = mapped_column()
+    heat_radius_km: Mapped[float | None] = mapped_column()
+    heat_products: Mapped[str | None] = mapped_column(String(120))
+    heat_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class UcdpRelease(Base):
+    """A UCDP Candidate monthly file that was downloaded (missing months are not zeros)."""
+    __tablename__ = "ucdp_releases"
+    release: Mapped[str] = mapped_column(String(20), primary_key=True)  # e.g. 26.0.9
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    etag: Mapped[str | None] = mapped_column(String(200))
+    last_modified: Mapped[str | None] = mapped_column(String(80))
+    rows_total: Mapped[int] = mapped_column(Integer, nullable=False)
+    rows_mena: Mapped[int] = mapped_column(Integer, nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class UcdpRefresh(Base):
+    """One attempt to sync UCDP Candidate releases and run heat cross-checks."""
+    __tablename__ = "ucdp_refreshes"
+    __table_args__ = (Index("ix_ucdp_refreshes_started_at", "started_at"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
+    rows_stored: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    heat_checked: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_summary: Mapped[str | None] = mapped_column(Text)

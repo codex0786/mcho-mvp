@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiUrl, getJsonWithWake } from "../lib/api";
+import ConflictPanel, { type ConflictOverview } from "./ConflictPanel";
 import CountryTrend from "./CountryTrend";
 import DamagePanel, { type DamageOverview } from "./DamagePanel";
 import MovingFronts from "./MovingFronts";
@@ -37,6 +38,8 @@ export default function ObservatoryDashboard() {
   const [maritime, setMaritime] = useState<MaritimeOverview | null>(null);
   const [maritimeMessage, setMaritimeMessage] = useState("Loading shipping data…");
   const [damage, setDamage] = useState<DamageOverview | null>(null);
+  const [conflict, setConflict] = useState<ConflictOverview | null>(null);
+  const [conflictMessage, setConflictMessage] = useState("Loading verified conflict events…");
   const [damageMessage, setDamageMessage] = useState("Loading damage assessments…");
 
   // Read shareable state after mount so server and client render the same markup.
@@ -65,6 +68,17 @@ export default function ObservatoryDashboard() {
       onWaking: () => setMaritimeMessage("The server is waking up (free hosting can take about a minute). Retrying…"),
     }).then((body) => { if (body) setMaritime(body); })
       .catch((err) => { if (current) setMaritimeMessage(`Shipping data unavailable: ${err instanceof Error ? err.message : "unknown error"}.`); });
+    return () => { current = false; };
+  }, [country, refreshKey]);
+
+  useEffect(() => {
+    let current = true;
+    setConflictMessage("Loading verified conflict events…");
+    getJsonWithWake<ConflictOverview>(apiUrl("/conflict/overview", { country: country ?? undefined }), {
+      isCurrent: () => current,
+      onWaking: () => setConflictMessage("The server is waking up (free hosting can take about a minute). Retrying…"),
+    }).then((body) => { if (body) setConflict(body); })
+      .catch((err) => { if (current) setConflictMessage(`Verified conflict events unavailable: ${err instanceof Error ? err.message : "unknown error"}.`); });
     return () => { current = false; };
   }, [country, refreshKey]);
 
@@ -111,7 +125,7 @@ export default function ObservatoryDashboard() {
             <h2>{selected ? selected.name : "Regional map"}</h2>
             <span>Satellite heat detections · unverified</span>
           </div>
-          <RegionalMap hours={hours} country={country} focus={selected?.bbox ?? null} refreshKey={refreshKey} onEvents={setEvents} maritime={maritime} damage={damage?.cells ?? null} />
+          <RegionalMap hours={hours} country={country} focus={selected?.bbox ?? null} refreshKey={refreshKey} onEvents={setEvents} maritime={maritime} damage={damage?.cells ?? null} conflict={conflict?.events ?? null} />
         </section>
         <aside className="side-card">
           {country && <><CountryTrend key={country} iso3={country} onClose={() => selectCountry(null)} /><div className="section-divider" /></>}
@@ -135,6 +149,7 @@ export default function ObservatoryDashboard() {
           )}
         </aside>
       </div>
+      <ConflictPanel data={conflict} message={conflictMessage} countryName={selected?.name ?? null} />
       <ShippingPanel data={maritime} message={maritimeMessage} countryName={selected?.name ?? null} />
       <DamagePanel data={damage} message={damageMessage} countryName={selected?.name ?? null} />
     </>

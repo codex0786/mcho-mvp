@@ -98,3 +98,23 @@ All checks should print `PASS`. Then open <https://mcho-mvp.vercel.app>: the map
 ## Moving off the free tier
 
 `deploy/render-paid-pilot.yaml` describes a paid pilot with a Celery worker, Render Postgres and Key Value, and a pre-deploy migration step. Review current pricing before applying it; it creates billable resources.
+
+## Keeping the API awake
+
+Render's free web services sleep after 15 minutes without traffic. Waking takes about a minute and occasionally fails
+(`hibernate-wake-error`), which leaves visitors waiting.
+
+**How the API stays awake:**
+
+- **Self-ping:** the API requests its own public health URL every 10 minutes (`app/core/keep_warm.py`). It uses
+  `RENDER_EXTERNAL_URL`, which Render sets automatically, so there is nothing to configure.
+  - Set `KEEP_WARM_MINUTES=0` to turn it off.
+  - Set `KEEP_WARM_URL` to use a different public URL.
+- **Backup:** `.github/workflows/keep-warm.yml` pings every 10 minutes and wakes the service if it ever sleeps. GitHub
+  delays scheduled runs, so the backup alone is not enough.
+
+**Free-tier hours:**
+
+- One service running all month uses at most 744 of the 750 free instance hours per workspace.
+- If another free web service in the same Render workspace also runs, the hours run out before the month ends. Render
+  then suspends free services until the next month.

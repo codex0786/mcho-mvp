@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     firms_area: str = "-18,8,64,40"
     firms_refresh_minutes: int = 45
     firms_retention_days: int = 21
+    # Self-ping so the free Render instance does not sleep (app/core/keep_warm.py).
+    # Render sets RENDER_EXTERNAL_URL itself; empty elsewhere, so local runs and tests never ping.
+    keep_warm_url: str = Field(default="", validation_alias=AliasChoices("KEEP_WARM_URL", "RENDER_EXTERNAL_URL"))
+    keep_warm_minutes: int = 10
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

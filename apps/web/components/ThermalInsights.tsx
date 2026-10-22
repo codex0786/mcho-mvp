@@ -16,7 +16,7 @@ type Cluster = {
   first_seen: string; last_seen: string; satellites: number;
 };
 type Insights = {
-  window_hours: number; latest_detection_at: string | null; baseline_days_available: number;
+  window_hours: number; country: string | null; latest_detection_at: string | null; baseline_days_available: number;
   totals: { active_detections: number; new_detections: number; persistent_detections: number; elevated_countries: number };
   countries: Country[]; new_activity_clusters: Cluster[];
   method: { cell_degrees: number; cluster_degrees: number; baseline_days: number; persistent_min_days: number; elevated_rule: string };
@@ -98,6 +98,12 @@ export default function ThermalInsights({ hours, country, onSelectCountry, onTot
         </div>
       )}
       {failed && <p className="insights-warning" role="status">Latest satellite download failed: {failed}</p>}
+      {(data.country ?? null) !== country || data.window_hours !== hours ? (
+        <p className="insights-warning" role="status">
+          Still showing {data.country ? (data.countries.find((c) => c.iso_a3 === data.country)?.name ?? data.country) : "the whole region"}, last {data.window_hours} h.{" "}
+          {message || "Updating…"}
+        </p>
+      ) : null}
 
       {data.latest_detection_at && (
         <>
@@ -126,7 +132,7 @@ export default function ThermalInsights({ hours, country, onSelectCountry, onTot
             </ul>
           )}
 
-          <h3>New activity clusters{country ? ` in ${data.countries.find((c) => c.iso_a3 === country)?.name ?? country}` : ""}</h3>
+          <h3>New activity clusters{data.country ? ` in ${data.countries.find((c) => c.iso_a3 === data.country)?.name ?? data.country}` : ""}</h3>
           {data.new_activity_clusters.length === 0 ? <p className="muted">No clusters of heat at previously quiet locations.</p> : (
             <ul className="insights-list">
               {data.new_activity_clusters.map((c) => {

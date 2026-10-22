@@ -4,12 +4,16 @@ export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ||
   (process.env.NODE_ENV === "development" ? "http://localhost:8000/api/v1" : "/api/backend/api/v1")).replace(/\/$/, "");
 
 // Free hosting sleeps when idle and takes about a minute to wake; the proxy gives up
-// sooner (502/504). Retry these responses with growing delays (~90 s in total).
+// sooner (502/504). While it wakes, the host's edge can also answer 429 (a bot
+// challenge). Retry these responses with growing delays (~90 s in total).
 export const WAKE_RETRY_DELAYS_MS = [3_000, 6_000, 10_000, 15_000, 20_000, 20_000, 20_000];
-const RETRYABLE_STATUSES = new Set([502, 503, 504]);
+const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
+const MAX_RETRY_AFTER_MS = 30_000;
 
 export class ApiError extends Error {}
-class RetryableApiError extends ApiError {}
+class RetryableApiError extends ApiError {
+  constructor(message: string, readonly retryAfterMs?: number) { super(message); }
+}
 
 export function apiUrl(path: string, params: Record<string, string | number | undefined> = {}): URL {
   const endpoint = `${API_BASE}${path}`;
@@ -36,7 +40,11 @@ export async function getJsonWithWake<T>(
       } catch {
         throw new RetryableApiError("the API could not be reached");
       }
-      if (RETRYABLE_STATUSES.has(response.status)) throw new RetryableApiError(`API returned HTTP ${response.status}`);
+      if (RETRYABLE_STATUSES.has(response.status)) {
+        const retryAfter = Number(response.headers.get("retry-after"));
+        throw new RetryableApiError(`the data server is busy or waking up (HTTP ${response.status})`,
+          Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, MAX_RETRY_AFTER_MS) : undefined);
+      }
       if (!response.ok) throw new ApiError(`API returned HTTP ${response.status}`);
       const body = await response.json() as T;
       return isCurrent() ? body : null;
@@ -44,7 +52,7 @@ export async function getJsonWithWake<T>(
       if (!(err instanceof RetryableApiError) || attempt >= WAKE_RETRY_DELAYS_MS.length) throw err;
       if (!isCurrent()) return null;
       onWaking?.();
-      await new Promise((resolve) => setTimeout(resolve, WAKE_RETRY_DELAYS_MS[attempt]));
+      await new Promise((resolve) => setTimeout(resolve, Math.max(WAKE_RETRY_DELAYS_MS[attempt], err.retryAfterMs ?? 0)));
       if (!isCurrent()) return null;
     }
   }

@@ -107,7 +107,33 @@ function maritimeFor(country: string | null) {
   };
 }
 
+const DAMAGE = {
+  assessments: [
+    { id: "p-strip", title: "UNOSAT Gaza Strip Comprehensive Damage Assessment - 11 October 2025", country_code: "PSE", unosat_code: "CE20231007PSE",
+      published_on: "2025-10-31", imagery_date: "2025-10-11", status: "mapped", status_detail: "Layer Damage_Sites", on_map: true, superseded_by: null,
+      counts: { destroyed: 123464, severe: 17116, moderate: 33857, possible: 23836, unclassified: 0 }, bbox: [34, 31, 35, 32],
+      hdx_url: "https://data.humdata.org/dataset/unosat-gaza", licence: "Creative Commons Attribution Share-Alike (CC BY-SA)", licence_url: null,
+      summary: "This map illustrates a satellite imagery based comprehensive assessment of damage.", caveats: "Preliminary." },
+    { id: "p-old", title: "UNOSAT Gaza Strip Comprehensive Damage Assessment - 08 July 2025", country_code: "PSE", unosat_code: "CE20231007PSE",
+      published_on: "2025-08-05", imagery_date: "2025-07-08", status: "mapped", status_detail: null, on_map: false,
+      superseded_by: "UNOSAT Gaza Strip Comprehensive Damage Assessment - 11 October 2025",
+      counts: { destroyed: 102067, severe: 17421, moderate: 41895, possible: 31194, unclassified: 0 }, bbox: [34.2, 31.2, 34.6, 31.6],
+      hdx_url: "https://data.humdata.org/dataset/unosat-gaza-july", licence: "CC BY-SA", licence_url: null, summary: "Earlier.", caveats: null },
+  ],
+  cells: { type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [34.45, 31.5] },
+    properties: { destroyed: 40, severe: 5, moderate: 3, possible: 2, unclassified: 0, total: 50, destroyed_share: 0.8,
+      assessment: "UNOSAT Gaza Strip Comprehensive Damage Assessment - 11 October 2025", imagery_date: "2025-10-11" } }] },
+  totals_on_map: { destroyed: 123464, severe: 17116, moderate: 33857, possible: 23836, unclassified: 0 }, cell_km: 0.6,
+  attribution: "Source: United Nations Satellite Centre (UNOSAT), via the Humanitarian Data Exchange (HDX)",
+  caveats: "UNOSAT assessments are preliminary.", transformation: "MCHO counts structures in grid cells.",
+  freshness: { refresh_scheduled: false, last_successful_refresh_at: NOW, last_attempt: { status: "succeeded", error_summary: null } },
+};
+
 async function mockThermal(page: Page, configured = true) {
+  await page.route("**/damage/overview**", (route) => {
+    const country = new URL(route.request().url()).searchParams.get("country");
+    return route.fulfill({ json: country && country !== "PSE" ? { ...DAMAGE, assessments: [], cells: { type: "FeatureCollection", features: [] } } : DAMAGE });
+  });
   await page.route("**/maritime/overview**", (route) => {
     const country = new URL(route.request().url()).searchParams.get("country");
     return route.fulfill({ json: maritimeFor(country) });
@@ -364,4 +390,26 @@ test("shows shipping chokepoints and ports from IMF PortWatch, following the cou
   await expect(shipping).toContainText("PortWatch covers no ports in Sudan");
   await page.goto("/?country=IRQ");
   await expect(shipping).toContainText("Ports in Iraq");
+});
+
+test("lists UN satellite damage assessments, hiding superseded ones from the map", async ({ page }) => {
+  await mockRuntime(page, "slow-tiles");
+  await page.goto("/");
+  const damage = page.getByRole("region", { name: "Damage assessments" });
+  const gaza = damage.getByRole("article", { name: /11 October 2025/ });
+  await expect(gaza).toContainText("123,464 destroyed · 17,116 severely damaged", { timeout: 15_000 });
+  await expect(gaza).toContainText("Imagery 2025-10-11 · published 2025-10-31 · CE20231007PSE");
+  await expect(damage.getByRole("article")).toHaveCount(1);
+  await damage.getByRole("button", { name: "Show 1 older, overlapping or unmapped assessment" }).click();
+  await expect(damage.locator("tbody tr")).toContainText("Covered by newer: UNOSAT Gaza Strip");
+  await expect(damage).toContainText("Source: United Nations Satellite Centre (UNOSAT)");
+  await expect(page.getByLabel("Map legend")).toContainText("UN-assessed building damage");
+  await page.evaluate(() => window.addEventListener("mcho:fly-to", (e) => {
+    (window as unknown as { lastFlyTo: unknown }).lastFlyTo = (e as CustomEvent).detail;
+  }));
+  await gaza.getByRole("button", { name: "Show on map" }).click();
+  expect(await page.evaluate(() => (window as unknown as { lastFlyTo: unknown }).lastFlyTo)).toEqual({ longitude: 34.5, latitude: 31.5, zoom: 10 });
+
+  await page.getByLabel("Country").selectOption("SDN");
+  await expect(damage).toContainText("No UNOSAT conflict damage assessments for Sudan on HDX.");
 });

@@ -63,6 +63,16 @@ export default function About() {
           the 7-day averages and comparisons. Ships that switch off AIS aren&apos;t counted, and no individual ship is shown.
         </p>
 
+        <h2>UN damage assessments</h2>
+        <p>
+          The United Nations Satellite Centre (UNOSAT) compares satellite images taken before and after attacks and marks each building it
+          judges destroyed, severely, moderately or possibly damaged. MCHO lists UNOSAT&apos;s conflict damage assessments for the region and,
+          where the published geodata can be read, counts those buildings by UNOSAT&apos;s own class in cells of about 500 m. When a newer
+          assessment covers the same area, only the newer one is drawn, because UNOSAT&apos;s assessments are cumulative. Assessments are
+          preliminary, cover specific areas on specific dates, and appear months apart: a place without an assessment is unassessed, not
+          undamaged.
+        </p>
+
         <h2>What it can&apos;t tell you</h2>
         <ul>
           <li><strong>The cause.</strong> Heat can come from fighting, shelling-related fires, crop and stubble burning, wildfires, waste burning
@@ -85,6 +95,7 @@ export default function About() {
           <li>Satellite detections: NASA FIRMS, VIIRS 375 m near-real-time products (NASA open data).</li>
           <li>Imagery: Copernicus Sentinel-2 L2A (free and open), found via <a className="text-link" href="https://earth-search.aws.element84.com/v1" target="_blank" rel="noreferrer">Earth Search</a> (Element 84, AWS Open Data); full-resolution viewing in Copernicus Browser.</li>
           <li>Shipping: Source: International Monetary Fund, <a className="text-link" href="https://portwatch.imf.org" target="_blank" rel="noreferrer">PortWatch</a> (daily chokepoint transits and port calls, AIS-based); averages and comparisons computed by MCHO.</li>
+          <li>Damage assessments: United Nations Satellite Centre (UNOSAT), via the <a className="text-link" href="https://data.humdata.org/organization/unosat" target="_blank" rel="noreferrer">Humanitarian Data Exchange</a>, CC BY-SA; MCHO&apos;s ~500 m damage grid is shared under the same licence.</li>
           <li>Country borders: <a className="text-link" href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a> 1:50m (public domain).</li>
           <li>Basemap: <a className="text-link" href="https://openfreemap.org/" target="_blank" rel="noreferrer">OpenFreeMap</a>, map data © OpenStreetMap contributors.</li>
         </ul>

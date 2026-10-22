@@ -33,6 +33,7 @@ REVISION_DAYS = 7
 REFRESH_HOURS = 6
 RETRY_AFTER_FAILURE = timedelta(minutes=30)
 PAGE_SIZE = 1000
+WRITE_BATCH = 2000
 REFRESH_LOCK_KEY = 4_216_002
 SOURCE_VERSION = "IMF PortWatch"
 ATTRIBUTION = "Source: International Monetary Fund, PortWatch, https://portwatch.imf.org"
@@ -132,6 +133,11 @@ def needs_refresh(db: Session, now: datetime | None = None) -> bool:
 
 
 def refresh_maritime(db: Session, client: httpx.Client, now: datetime | None = None) -> MaritimeRefresh | None:
+    """Fetch first with no transaction open, then write in short committed batches.
+
+    PortWatch requests can take minutes; holding a database transaction open
+    across them lets the database drop an idle-in-transaction connection.
+    """
     now = now or utcnow()
     wall_start = utcnow()
     if not db.scalar(text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": REFRESH_LOCK_KEY}) or not needs_refresh(db, now):
@@ -140,39 +146,48 @@ def refresh_maritime(db: Session, client: httpx.Client, now: datetime | None = N
     refresh = MaritimeRefresh(started_at=now, status="running")
     db.add(refresh)
     db.commit()
+    refresh_id = refresh.id
     try:
         countries = configured_countries(db)
         latest = db.scalar(text("SELECT max(period_start) FROM maritime_aggregates WHERE source_version = :v"), {"v": SOURCE_VERSION})
+        db.commit()  # close the read transaction before slow network calls
         since = (latest - timedelta(days=REVISION_DAYS)).date() if latest else (now - timedelta(days=HISTORY_DAYS)).date()
         chokepoint_list = ",".join(f"'{c}'" for c in CHOKEPOINTS)
         country_list = ",".join(f"'{c}'" for c in countries)
+        day_filter = f"date >= '{since.isoformat()}'"
 
+        phase = utcnow()
         chokepoints = query_all(client, CHOKEPOINT_META, f"portid IN ({chokepoint_list})", "portid,portname,lat,lon,vessel_count_total", geometry=True)
         ports = query_all(client, PORT_META, f"ISO3 IN ({country_list})", "portid,portname,ISO3,lat,long,vessel_count_total", geometry=True)
+        chokepoint_daily = query_all(client, CHOKEPOINT_DAILY, f"portid IN ({chokepoint_list}) AND {day_filter}",
+                                     "portid,date," + ",".join(CHOKEPOINT_METRICS))
+        port_daily = query_all(client, PORT_DAILY, f"ISO3 IN ({country_list}) AND {day_filter}", "portid,date," + ",".join(PORT_METRICS))
+        logger.info("maritime_fetch_done seconds=%.1f chokepoint_days=%s port_days=%s since=%s",
+                    (utcnow() - phase).total_seconds(), len(chokepoint_daily), len(port_daily), since)
+
+        rows = _metric_rows(chokepoint_daily, CHOKEPOINT_METRICS, set(CHOKEPOINTS))
+        rows += _metric_rows(port_daily, PORT_METRICS, {p["portid"] for p in ports})
+        phase = utcnow()
         for c in chokepoints:
             db.execute(_UPSERT_AREA, {"id": c["portid"], "kind": "chokepoint", "name": c["portname"], "country": None,
                                       "lon": c.get("_lon", c.get("lon")), "lat": c.get("_lat", c.get("lat")), "reference": c.get("vessel_count_total")})
         for p in ports:
             db.execute(_UPSERT_AREA, {"id": p["portid"], "kind": "port", "name": p["portname"], "country": p.get("ISO3"),
                                       "lon": p.get("_lon", p.get("long")), "lat": p.get("_lat", p.get("lat")), "reference": p.get("vessel_count_total")})
-
-        day_filter = f"date >= '{since.isoformat()}'"
-        rows = _metric_rows(query_all(client, CHOKEPOINT_DAILY, f"portid IN ({chokepoint_list}) AND {day_filter}",
-                                      "portid,date," + ",".join(CHOKEPOINT_METRICS)), CHOKEPOINT_METRICS, set(CHOKEPOINTS))
-        rows += _metric_rows(query_all(client, PORT_DAILY, f"ISO3 IN ({country_list}) AND {day_filter}",
-                                       "portid,date," + ",".join(PORT_METRICS)), PORT_METRICS, {p["portid"] for p in ports})
-        for offset in range(0, len(rows), 5000):
-            db.execute(_UPSERT, {"rows": json.dumps(rows[offset:offset + 5000]), "source_version": SOURCE_VERSION})
+        db.commit()
+        for offset in range(0, len(rows), WRITE_BATCH):
+            db.execute(_UPSERT, {"rows": json.dumps(rows[offset:offset + WRITE_BATCH]), "source_version": SOURCE_VERSION})
+            db.commit()
         db.execute(text("DELETE FROM maritime_aggregates WHERE source_version = :v AND period_start < :cutoff"),
                    {"v": SOURCE_VERSION, "cutoff": now - timedelta(days=HISTORY_DAYS + 30)})
-        refresh = db.merge(refresh)
+        refresh = db.get(MaritimeRefresh, refresh_id)
         refresh.status, refresh.rows_stored = "succeeded", len(rows)
         refresh.finished_at = now + (utcnow() - wall_start)
         db.commit()
-        logger.info("maritime_refresh_succeeded rows=%s since=%s", len(rows), since)
+        logger.info("maritime_refresh_succeeded rows=%s write_seconds=%.1f", len(rows), (utcnow() - phase).total_seconds())
     except Exception as exc:
         db.rollback()
-        refresh = db.merge(refresh)
+        refresh = db.get(MaritimeRefresh, refresh_id)
         refresh.status = "failed"
         refresh.error_summary = str(exc) if isinstance(exc, PortWatchError) else f"{type(exc).__name__}: refresh stopped."
         refresh.finished_at = now + (utcnow() - wall_start)

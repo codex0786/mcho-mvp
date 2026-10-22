@@ -381,3 +381,57 @@ class MaritimeRefresh(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
     rows_stored: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_summary: Mapped[str | None] = mapped_column(Text)
+
+
+class DamageAssessment(Base):
+    """A UNOSAT satellite damage assessment published on HDX (CC BY-SA)."""
+    __tablename__ = "damage_assessments"
+    __table_args__ = (Index("ix_damage_assessments_country", "country_code"),)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # HDX package id
+    name: Mapped[str] = mapped_column(String(200), nullable=False)  # HDX slug
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    country_code: Mapped[str | None] = mapped_column(String(3))
+    unosat_code: Mapped[str | None] = mapped_column(String(40))
+    published_on: Mapped[date | None] = mapped_column(Date)
+    imagery_date: Mapped[date | None] = mapped_column(Date)
+    resource_url: Mapped[str | None] = mapped_column(Text)
+    licence: Mapped[str] = mapped_column(String(160), nullable=False)
+    licence_url: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    caveats: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)  # pending | mapped | catalogue | failed
+    status_detail: Mapped[str | None] = mapped_column(Text)
+    extent = mapped_column(Geometry(geometry_type="POLYGON", srid=4326, spatial_index=False))
+    destroyed: Mapped[int | None] = mapped_column(Integer)
+    severe: Mapped[int | None] = mapped_column(Integer)
+    moderate: Mapped[int | None] = mapped_column(Integer)
+    possible: Mapped[int | None] = mapped_column(Integer)
+    unclassified: Mapped[int | None] = mapped_column(Integer)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class DamageCell(Base):
+    """Structures counted by damage class in a ~500 m grid cell of one assessment."""
+    __tablename__ = "damage_cells"
+    assessment_id: Mapped[str] = mapped_column(String(64), ForeignKey("damage_assessments.id", ondelete="CASCADE"), primary_key=True)
+    cell_x: Mapped[int] = mapped_column(Integer, primary_key=True)
+    cell_y: Mapped[int] = mapped_column(Integer, primary_key=True)
+    geometry = mapped_column(Geometry(geometry_type="POINT", srid=4326, spatial_index=False), nullable=False)
+    destroyed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    severe: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    moderate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    possible: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    unclassified: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class DamageRefresh(Base):
+    """One attempt to sync UNOSAT damage assessments from HDX."""
+    __tablename__ = "damage_refreshes"
+    __table_args__ = (Index("ix_damage_refreshes_started_at", "started_at"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
+    rows_stored: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_summary: Mapped[str | None] = mapped_column(Text)

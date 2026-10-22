@@ -194,7 +194,7 @@ def needs_refresh(db: Session, now: datetime | None = None) -> bool:
     if last_success and last_success > now - timedelta(hours=REFRESH_HOURS) and not checks_due:
         return False
     last_attempt = db.scalar(select(func.max(UcdpRefresh.started_at)))
-    retry = timedelta(minutes=20) if checks_due and last_success and last_success > now - timedelta(hours=REFRESH_HOURS) else RETRY_AFTER_FAILURE
+    retry = timedelta(minutes=10) if checks_due and last_success and last_success > now - timedelta(hours=REFRESH_HOURS) else RETRY_AFTER_FAILURE
     return not (last_attempt and last_attempt > now - retry)
 
 
@@ -236,19 +236,21 @@ def refresh_ucdp(db: Session, client: httpx.Client, firms_client: httpx.Client |
     db.add(refresh)
     db.commit()
     refresh_id = refresh.id
-    stored = checked = 0
+    stored = 0
+    heat = {"checked": 0, "requests": 0, "fetched": 0}
     try:
         stored = sync_releases(db, client, now)
-        checked = check_pending_events(db, firms_client or client, now)
+        heat = check_pending_events(db, firms_client or client, now)
         refresh = db.get(UcdpRefresh, refresh_id)
-        refresh.status, refresh.rows_stored, refresh.heat_checked = "succeeded", stored, checked
+        refresh.status, refresh.rows_stored, refresh.heat_checked = "succeeded", stored, heat["checked"]
+        refresh.heat_requests, refresh.heat_detections_fetched = heat["requests"], heat["fetched"]
         refresh.finished_at = now + (utcnow() - wall_start)
         db.commit()
-        logger.info("ucdp_refresh_succeeded rows=%s heat_checked=%s", stored, checked)
+        logger.info("ucdp_refresh_succeeded rows=%s heat=%s", stored, heat)
     except Exception as exc:
         db.rollback()
         refresh = db.get(UcdpRefresh, refresh_id)
-        refresh.status, refresh.rows_stored, refresh.heat_checked = "failed", stored, checked
+        refresh.status, refresh.rows_stored, refresh.heat_checked = "failed", stored, heat["checked"]
         refresh.error_summary = str(exc) if isinstance(exc, UcdpError) else f"{type(exc).__name__}: refresh stopped."
         refresh.finished_at = now + (utcnow() - wall_start)
         db.commit()

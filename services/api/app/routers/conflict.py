@@ -32,6 +32,8 @@ def overview(
         "refresh_scheduled": scheduled,
         "last_successful_refresh_at": last_success.isoformat() if last_success else None,
         "last_attempt": None if latest is None else {"status": latest.status, "started_at": latest.started_at.isoformat(),
-                                                     "error_summary": latest.error_summary},
+                                                     "error_summary": latest.error_summary, "heat_checked": latest.heat_checked,
+                                                     "heat_requests": latest.heat_requests,
+                                                     "heat_detections_fetched": latest.heat_detections_fetched},
     }
     return payload

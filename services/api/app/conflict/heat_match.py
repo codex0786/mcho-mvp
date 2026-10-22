@@ -35,7 +35,7 @@ logger = logging.getLogger("mcho.ucdp.heat")
 FAMILIES = ("VIIRS_NOAA20_NRT", "VIIRS_SNPP_NRT")  # two satellites, about four passes a day between them
 RADIUS_KM = {1: 5.0, 2: 25.0}
 WINDOW_PAD_DAYS = 1
-MAX_REQUESTS_PER_RUN = 40
+MAX_REQUESTS_PER_RUN = 200  # FIRMS allows 5,000 per 10 minutes per key; the hourly heat refresh uses a few
 GROUP_DEGREES = 1.0
 GROUP_DAYS = 7
 
@@ -125,24 +125,29 @@ def assess(event: dict[str, Any], detections: list[dict[str, Any]]) -> dict[str,
     }
 
 
-def check_pending_events(db: Session, client: httpx.Client, now: datetime, max_requests: int = MAX_REQUESTS_PER_RUN) -> int:
-    """Run heat cross-checks for pending events within a request budget. Returns events checked."""
+def check_pending_events(db: Session, client: httpx.Client, now: datetime, max_requests: int = MAX_REQUESTS_PER_RUN) -> dict[str, int]:
+    """Run heat cross-checks for pending events within a request budget.
+
+    Returns events checked, FIRMS requests made and detections fetched in the search boxes; the last
+    one shows whether FIRMS returned data at all, separately from whether any of it matched.
+    """
+    summary = {"checked": 0, "requests": 0, "fetched": 0}
     key = settings.nasa_firms_api_key.strip()
     if not key:
-        return 0
+        return summary
     rows = db.execute(text("""
         SELECT id, latitude, longitude, date_start, date_end, where_prec FROM ucdp_events
         WHERE heat_status = 'pending' ORDER BY date_start DESC LIMIT 2000
     """)).mappings().all()
     db.commit()  # no transaction held during FIRMS requests
     if not rows:
-        return 0
+        return summary
     try:
         ranges = parse_availability(fetch_csv_any(client, availability_url(key)))
     except FirmsError as exc:
         logger.warning("ucdp_heat_availability_failed summary=%s", exc)
-        return 0
-    checked = requests = 0
+        return summary
+    checked = requests = fetched = 0
     for group in group_events([dict(r) for r in rows]):
         first, last = group_days(group)
         plans = {family: plan_chunks(first, last, family, ranges) for family in FAMILIES}
@@ -163,6 +168,7 @@ def check_pending_events(db: Session, client: httpx.Client, now: datetime, max_r
         except FirmsError as exc:
             logger.warning("ucdp_heat_fetch_failed summary=%s", exc)
             break
+        fetched += len(detections)
         products = ",".join(sorted({product for plan in plans.values() for product, _, _ in plan or []}))[:120]
         for event in group:
             result = assess(event, detections)
@@ -175,5 +181,5 @@ def check_pending_events(db: Session, client: httpx.Client, now: datetime, max_r
             """), {**result, "products": products, "checked_at": now, "id": event["id"]})
             checked += 1
         db.commit()
-    logger.info("ucdp_heat_checked events=%s requests=%s", checked, requests)
-    return checked
+    logger.info("ucdp_heat_checked events=%s requests=%s detections_fetched=%s", checked, requests, fetched)
+    return {"checked": checked, "requests": requests, "fetched": fetched}

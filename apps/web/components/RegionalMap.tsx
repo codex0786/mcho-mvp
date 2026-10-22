@@ -5,6 +5,7 @@ import maplibregl, { Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import { apiUrl, getJsonWithWake, utcTime } from "../lib/api";
+import { VIOLENCE_COLOURS } from "./ConflictPanel";
 import { DAMAGE_COLOURS } from "./DamagePanel";
 import { changeColour, type MaritimeArea } from "./ShippingPanel";
 
@@ -29,6 +30,8 @@ type Props = {
   maritime?: { chokepoints: MaritimeArea[]; ports: MaritimeArea[] } | null;
   // UNOSAT damaged structures counted in ~500 m cells.
   damage?: GeoJSON.FeatureCollection | null;
+  // UCDP Candidate events (verified, preliminary), latest months available.
+  conflict?: GeoJSON.FeatureCollection | null;
 };
 const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 const REGION_VIEW = { center: [39, 27] as [number, number], zoom: 3.2 };
@@ -40,7 +43,7 @@ export const TRACK_COLOUR = "#7fd3ff";
 export const TRACK_DAYS = 7;
 const CONFIDENCE = { l: "low", n: "nominal", h: "high" } as Record<string, string>;
 
-export default function RegionalMap({ hours, country, focus, refreshKey, onEvents, maritime, damage }: Props) {
+export default function RegionalMap({ hours, country, focus, refreshKey, onEvents, maritime, damage, conflict }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const [status, setStatus] = useState("Loading map configuration…");
@@ -52,8 +55,8 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
   const thermalGeneration = useRef(0);
   const trackGeneration = useRef(0);
   // Latest props for map callbacks that are registered once.
-  const filters = useRef({ hours, country, onEvents, maritime, damage });
-  filters.current = { hours, country, onEvents, maritime, damage };
+  const filters = useRef({ hours, country, onEvents, maritime, damage, conflict });
+  filters.current = { hours, country, onEvents, maritime, damage, conflict };
   const styleReady = useRef(false);
 
   useEffect(() => {
@@ -150,6 +153,18 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
             "circle-stroke-color": ["get", "colour"], "circle-stroke-width": ["case", ["==", ["get", "kind"], "chokepoint"], 2.5, 1],
           },
         });
+        instance.addSource("ucdp", { type: "geojson", data: filters.current.conflict ?? EMPTY });
+        instance.addLayer({
+          id: "ucdp-events", type: "circle", source: "ucdp",
+          paint: {
+            "circle-color": ["match", ["get", "type_code"], 1, VIOLENCE_COLOURS[1], 2, VIOLENCE_COLOURS[2], VIOLENCE_COLOURS[3]],
+            "circle-radius": ["interpolate", ["linear"], ["sqrt", ["max", ["get", "deaths_best"], 1]], 1, 3.5, 5, 8, 15, 15],
+            "circle-opacity": 0.35,
+            "circle-stroke-color": ["case", ["==", ["get", "heat"], "heat"], "#ffffff", ["match", ["get", "type_code"], 1, VIOLENCE_COLOURS[1], 2, VIOLENCE_COLOURS[2], VIOLENCE_COLOURS[3]]],
+            "circle-stroke-width": ["case", ["==", ["get", "heat"], "heat"], 2, 1],
+          },
+          layout: { "circle-sort-key": ["get", "deaths_best"] },
+        });
         instance.addSource("events", {
           type: "geojson",
           data: { type: "FeatureCollection", features: [] },
@@ -219,6 +234,19 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
           + `${escapeHtml(change)}<br/><em>Source: IMF PortWatch (AIS-based aggregate).</em>`,
         ).addTo(instance!);
       });
+      instance.on("click", "ucdp-events", (e) => {
+        const p = e.features?.[0]?.properties;
+        if (!p) return;
+        const heat = { heat: "Satellite heat seen nearby within a day", no_heat: "No satellite heat seen nearby", persistent_only: "Only persistent-site heat nearby",
+          pending: "Heat cross-check pending", not_checkable: "Too imprecise for a heat cross-check" }[String(p.heat)] ?? "";
+        new maplibregl.Popup({ maxWidth: "300px" }).setLngLat(e.lngLat).setHTML(
+          `<strong>${escapeHtml(String(p.type))}</strong><br/>`
+          + `${escapeHtml(String(p.place || p.country))} · ${escapeHtml(String(p.date))}<br/>`
+          + `${escapeHtml(String(p.dyad))}<br/>`
+          + `Deaths (UCDP best estimate): ${escapeHtml(String(p.deaths_best))}${Number(p.deaths_civilians) > 0 ? `, civilians ${escapeHtml(String(p.deaths_civilians))}` : ""}<br/>`
+          + `${escapeHtml(heat)}<br/><em>Source: UCDP Candidate Events (preliminary), CC BY 4.0.</em>`,
+        ).addTo(instance!);
+      });
       instance.on("click", "damage-cells", (e) => {
         const p = e.features?.[0]?.properties;
         if (!p) return;
@@ -231,7 +259,7 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
       });
       instance.on("click", "track-lines", trackPopup);
       instance.on("click", "track-heads", trackPopup);
-      for (const layer of ["thermal-points", "event-points", "track-lines", "track-heads", "maritime-points", "damage-cells"]) {
+      for (const layer of ["thermal-points", "event-points", "track-lines", "track-heads", "maritime-points", "damage-cells", "ucdp-events"]) {
         instance.on("mouseenter", layer, () => { if (instance) instance.getCanvas().style.cursor = "pointer"; });
         instance.on("mouseleave", layer, () => { if (instance) instance.getCanvas().style.cursor = ""; });
       }
@@ -284,6 +312,11 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
     const source = map.current && styleReady.current ? map.current.getSource("damage") as maplibregl.GeoJSONSource | undefined : undefined;
     source?.setData(damage ?? EMPTY);
   }, [damage]);
+
+  useEffect(() => {
+    const source = map.current && styleReady.current ? map.current.getSource("ucdp") as maplibregl.GeoJSONSource | undefined : undefined;
+    source?.setData(conflict ?? EMPTY);
+  }, [conflict]);
 
   function bounds(instance: MapLibreMap) {
     const b = instance.getBounds();
@@ -378,6 +411,7 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
         <span><i style={{ background: THERMAL_COLOURS.persistent }}/>Persistent site</span>
         <span><i className="legend-line" style={{ background: TRACK_COLOUR }}/>Moving front, {TRACK_DAYS} days</span>
         <span><i className="legend-ring"/>Shipping chokepoint / port</span>
+        <span><i className="legend-ring" style={{ borderColor: VIOLENCE_COLOURS[1] }}/>Verified violent event (UCDP), white ring = heat seen</span>
         <span><i style={{ background: DAMAGE_COLOURS.high }}/>UN-assessed building damage</span>
         <small>Size = fire intensity. Unverified.</small>
       </div>

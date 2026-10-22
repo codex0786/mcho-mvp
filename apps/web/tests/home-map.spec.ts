@@ -129,7 +129,32 @@ const DAMAGE = {
   freshness: { refresh_scheduled: false, last_successful_refresh_at: NOW, last_attempt: { status: "succeeded", error_summary: null } },
 };
 
+const UCDP_EVENT = {
+  id: 101, date_start: "2026-09-10", date_end: "2026-09-10", country_code: "SDN", country: "Sudan", place: "El Fasher town", adm_1: "North Darfur",
+  type: "State-based conflict", type_code: 1, dyad: "Government of Sudan - RSF", conflict: "Sudan: Government", side_a: "Government of Sudan",
+  side_b: "RSF", deaths_best: 30, deaths_low: 25, deaths_high: 40, deaths_civilians: 12, code_status: "Clear", where_prec: 1, date_prec: 1,
+  longitude: 25.35, latitude: 13.6, heat: { status: "heat", detections: 3, nearest_km: 2.4, radius_km: 5, max_frp_mw: 25, persistent_excluded: 0 },
+};
+const CONFLICT = {
+  releases: [{ release: "26.0.9", month: "2026-09", fetched_at: NOW, events_mena: 430 }, { release: "26.0.8", month: "2026-08", fetched_at: NOW, events_mena: 300 }],
+  period: { start: "2026-07-01", end: "2026-09-30", months: ["2026-07", "2026-08", "2026-09"], missing_months: ["2026-07"] },
+  totals: { events: 730, deaths_best: 4330, deaths_low: 3900, deaths_high: 5100, deaths_civilians: 800 },
+  by_country: [{ country_code: "YEM", country: "Yemen", events: 358, deaths_best: 2100, deaths_low: 1900, deaths_high: 2500, deaths_civilians: 300,
+    by_type: { "State-based conflict": 2000, "Non-state conflict": 0, "One-sided violence against civilians": 100 } }],
+  by_month: [{ month: "2026-07", fetched: false, events: null, deaths_best: null }, { month: "2026-08", fetched: true, events: 300, deaths_best: 1800 },
+    { month: "2026-09", fetched: true, events: 430, deaths_best: 2530 }],
+  top_events: [UCDP_EVENT], events_with_heat: [UCDP_EVENT],
+  fronts_near_violence: [{ country: "Sudan", first_day: "2026-10-16", last_day: "2026-10-21", detections: 40, latest: { longitude: 30.16, latitude: 12.0 },
+    ucdp_events: 5, ucdp_deaths_best: 61, ucdp_latest: "2026-09-28", ucdp_dyad: "Government of Sudan - RSF", nearest_event_km: 6.2 }],
+  events: { type: "FeatureCollection", features: [] },
+  heat_check: { configured: true, checked: 400, with_heat: 120, no_heat: 270, persistent_only: 10, pending: 20, not_checkable: 310, share_with_heat: 0.3 },
+  attribution: "Source: Uppsala Conflict Data Program (UCDP) Candidate Events Dataset, CC BY 4.0", citation: "Hegre et al. (2020)",
+  caveats: "UCDP Candidate data are preliminary.", heat_note: "Heat cross-check.", transformation: "Totals computed by MCHO.",
+  freshness: { refresh_scheduled: false, last_successful_refresh_at: NOW, last_attempt: { status: "succeeded", error_summary: null } },
+};
+
 async function mockThermal(page: Page, configured = true) {
+  await page.route("**/conflict/overview**", (route) => route.fulfill({ json: CONFLICT }));
   await page.route("**/damage/overview**", (route) => {
     const country = new URL(route.request().url()).searchParams.get("country");
     return route.fulfill({ json: country && country !== "PSE" ? { ...DAMAGE, assessments: [], cells: { type: "FeatureCollection", features: [] } } : DAMAGE });
@@ -185,7 +210,8 @@ async function mockRuntime(page: Page, style: "slow-tiles" | "broken") {
 test("requests published records once the style is ready, without waiting for basemap tiles", async ({ page }) => {
   await mockRuntime(page, "slow-tiles");
   await page.goto("/");
-  const status = page.getByRole("status").filter({ hasText: /map features|basemap|Loading/ });
+  // The map's own status line; the side panels have status messages too.
+  const status = page.locator(".map-status").getByRole("status").filter({ hasText: /map features|basemap|Loading/ });
   await expect(status).toContainText("0 published map features", { timeout: 15_000 });
   await expect(status).toContainText("Basemap tiles still loading");
   await expect(status).not.toContainText("Waiting for map style configuration");
@@ -211,7 +237,7 @@ test("retries while a sleeping API wakes up, then shows the data", async ({ page
     } });
   });
   await page.goto("/");
-  const status = page.getByRole("status").filter({ hasText: /API|map features|Loading/ });
+  const status = page.locator(".map-status").getByRole("status").filter({ hasText: /API|map features|Loading/ });
   await expect(status).toContainText("The API is waking up", { timeout: 15_000 });
   await expect(status).toContainText("0 published map features", { timeout: 15_000 });
   expect(calls).toBe(2);
@@ -412,4 +438,21 @@ test("lists UN satellite damage assessments, hiding superseded ones from the map
 
   await page.getByLabel("Country").selectOption("SDN");
   await expect(damage).toContainText("No UNOSAT conflict damage assessments for Sudan on HDX.");
+});
+
+test("shows UCDP verified events, deaths and the satellite heat cross-check", async ({ page }) => {
+  await mockRuntime(page, "slow-tiles");
+  await page.goto("/");
+  const conflict = page.getByRole("region", { name: "Verified conflict events" });
+  await expect(conflict).toContainText("4,330", { timeout: 15_000 });
+  await expect(conflict).toContainText("deaths (best estimate; range 3,900–5,100)");
+  await expect(conflict).toContainText("Not downloaded: Jul 2026. Those months are missing, not zero.");
+  await expect(conflict).toContainText("Jul 2026: not downloaded");
+  await expect(conflict).toContainText("120 of 400 precisely located events had satellite heat nearby within a day (30%)");
+  const withHeat = conflict.getByRole("region", { name: "Events with satellite heat" }).or(conflict.getByLabel("Events with satellite heat"));
+  await expect(withHeat.getByRole("article").first()).toContainText("Satellite heat 2.4 km away (3 detections within 5 km, ±1 day)");
+  await expect(withHeat.getByRole("article").first()).toContainText("Deaths: 30 (25–40) · civilians 12");
+  await expect(conflict).toContainText("5 UCDP events within 25 km in the last 180 days (61 deaths, latest 2026-09-28");
+  await expect(conflict).toContainText("Cite: Hegre et al. (2020)");
+  await expect(page.getByLabel("Map legend")).toContainText("Verified violent event (UCDP)");
 });

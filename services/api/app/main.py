@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.routers import auth, damage, events, health, ingestion, maritime, observations, reviews, sentinel2, sources, thermal
+from app.routers import auth, conflict, damage, events, health, ingestion, maritime, observations, reviews, sentinel2, sources, thermal
 
 
 def configure_app_logging(level_name: str) -> logging.Logger:
@@ -94,6 +94,7 @@ app.include_router(thermal.router, prefix="/api/v1")
 app.include_router(sentinel2.router, prefix="/api/v1")
 app.include_router(maritime.router, prefix="/api/v1")
 app.include_router(damage.router, prefix="/api/v1")
+app.include_router(conflict.router, prefix="/api/v1")
 
 
 @app.get("/")

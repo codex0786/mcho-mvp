@@ -456,3 +456,27 @@ test("shows UCDP verified events, deaths and the satellite heat cross-check", as
   await expect(conflict).toContainText("Cite: Hegre et al. (2020)");
   await expect(page.getByLabel("Map legend")).toContainText("Verified violent event (UCDP)");
 });
+
+test("hero shows live headline figures; basemap and legend controls work", async ({ page }) => {
+  await mockRuntime(page, "slow-tiles");
+  await page.goto("/");
+  const figures = page.getByLabel("Headline figures, the whole MENA region");
+  await expect(figures).toContainText("4,330", { timeout: 15_000 });
+  await expect(figures).toContainText("123,464");
+  await expect(figures).toContainText("730 events · Jul–Sept · UCDP");
+
+  const satellite = page.getByRole("group", { name: "Basemap" }).getByRole("button", { name: "Satellite" });
+  const plain = page.getByRole("group", { name: "Basemap" }).getByRole("button", { name: "Map" });
+  await expect(satellite).toHaveAttribute("aria-pressed", "true");
+  await plain.click();
+  await expect(plain).toHaveAttribute("aria-pressed", "true");
+  await expect(satellite).toHaveAttribute("aria-pressed", "false");
+
+  const legendToggle = page.getByLabel("Map legend").getByRole("button", { name: /Legend/ });
+  await legendToggle.click();
+  await expect(legendToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByLabel("Map legend").getByText("New activity")).toBeHidden();
+
+  await page.getByRole("navigation", { name: "Site" }).getByRole("link", { name: "Verified violence" }).click();
+  await expect(page).toHaveURL(/#violence$/);
+});

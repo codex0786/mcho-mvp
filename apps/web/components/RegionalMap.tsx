@@ -34,6 +34,11 @@ type Props = {
   conflict?: GeoJSON.FeatureCollection | null;
 };
 const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+// Realistic basemap: Sentinel-2 cloudless 2024 mosaic, CC BY-NC-SA 4.0 (non-commercial use).
+const SATELLITE_TILES = "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg";
+const SATELLITE_ATTRIBUTION = '<a href="https://s2maps.eu" target="_blank" rel="noreferrer">Sentinel-2 cloudless</a> by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2024)';
+type Basemap = "map" | "satellite";
+const BASEMAP_KEY = "mcho:basemap";
 const REGION_VIEW = { center: [39, 27] as [number, number], zoom: 3.2 };
 
 const STYLE = process.env.NEXT_PUBLIC_MAP_STYLE_URL || "";
@@ -50,6 +55,10 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
   // Tracked separately so a data status is not overwritten while tiles are still arriving.
   const [basemapLoading, setBasemapLoading] = useState(false);
   const [thermalStatus, setThermalStatus] = useState("");
+  const [basemap, setBasemap] = useState<Basemap>("satellite");
+  const [legendOpen, setLegendOpen] = useState(true);
+  const basemapRef = useRef<Basemap>("satellite");
+  basemapRef.current = basemap;
   // Incremented by every refresh and on unmount, so superseded requests stop quietly.
   const eventGeneration = useRef(0);
   const thermalGeneration = useRef(0);
@@ -108,6 +117,14 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
       instance.once("style.load", () => {
         if (!instance || cancelled) return;
         styleReady.current = true;
+        // Satellite imagery sits under the style's labels and under every data layer added below.
+        const firstLabel = instance.getStyle().layers?.find((layer) => layer.type === "symbol")?.id;
+        instance.addSource("satellite", { type: "raster", tiles: [SATELLITE_TILES], tileSize: 256, maxzoom: 14, attribution: SATELLITE_ATTRIBUTION });
+        instance.addLayer({
+          id: "satellite", type: "raster", source: "satellite",
+          layout: { visibility: basemapRef.current === "satellite" ? "visible" : "none" },
+          paint: { "raster-brightness-max": 0.82, "raster-saturation": -0.15, "raster-fade-duration": 250 },
+        }, firstLabel);
         // Damage cells sit underneath the heat layers.
         instance.addSource("damage", { type: "geojson", data: filters.current.damage ?? EMPTY });
         instance.addLayer({
@@ -281,6 +298,22 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Restore the reader's basemap choice and close the legend on small screens.
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(BASEMAP_KEY);
+      if (saved === "map" || saved === "satellite") setBasemap(saved);
+    } catch { /* storage unavailable: keep the default */ }
+    if (window.matchMedia?.("(max-width: 700px)").matches) setLegendOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (map.current && styleReady.current && map.current.getLayer("satellite")) {
+      map.current.setLayoutProperty("satellite", "visibility", basemap === "satellite" ? "visible" : "none");
+    }
+    try { window.localStorage.setItem(BASEMAP_KEY, basemap); } catch { /* ignore */ }
+  }, [basemap]);
+
   useEffect(() => {
     if (map.current && styleReady.current) void refreshThermal(map.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -404,7 +437,14 @@ export default function RegionalMap({ hours, country, focus, refreshKey, onEvent
   return (
     <div className="map-wrap">
       <div ref={container} className="map-canvas" aria-label="Interactive regional map"/>
-      <div className="map-legend" aria-label="Map legend">
+      <div className="basemap-switch" role="group" aria-label="Basemap">
+        <button type="button" aria-pressed={basemap === "satellite"} onClick={() => setBasemap("satellite")}>Satellite</button>
+        <button type="button" aria-pressed={basemap === "map"} onClick={() => setBasemap("map")}>Map</button>
+      </div>
+      <div className={`map-legend${legendOpen ? "" : " is-collapsed"}`} aria-label="Map legend">
+        <button type="button" className="legend-toggle" aria-expanded={legendOpen} onClick={() => setLegendOpen((v) => !v)}>
+          Legend <span aria-hidden="true">{legendOpen ? "–" : "+"}</span>
+        </button>
         <strong>Satellite heat, last {hours} h</strong>
         <span><i style={{ background: THERMAL_COLOURS.new }}/>New activity</span>
         <span><i style={{ background: THERMAL_COLOURS.recurring }}/>Recurring</span>

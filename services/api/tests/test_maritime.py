@@ -97,3 +97,18 @@ def test_refresh_and_overview(db, monkeypatch):  # noqa: F811
         assert client.get("/api/v1/maritime/overview?country=FRA").status_code == 404
     finally:
         app.dependency_overrides.clear()
+
+
+def test_refresh_holds_no_database_transaction_while_fetching(db):  # noqa: F811
+    db.execute(text("DELETE FROM maritime_aggregates")); db.execute(text("DELETE FROM maritime_areas")); db.execute(text("DELETE FROM maritime_refreshes"))
+    db.commit()
+    open_during_fetch = []
+    fake = _fake_portwatch([date(2026, 10, 18)])
+
+    def handler(request):
+        open_during_fetch.append(db.in_transaction())
+        return fake(request)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        assert refresh_maritime(db, client, NOW).status == "succeeded"
+    assert open_during_fetch and not any(open_during_fetch)

@@ -57,6 +57,24 @@ The rules are deliberately simple so every number can be traced back to
 individual detections. Until 7 days of history exist, the panel says the
 baseline is still building.
 
+## Moving fronts (tracks)
+
+`GET /api/v1/thermal/tracks?days=7` follows heat across days:
+
+1. Persistent sites are removed: ~2 km cells active on at least 4 of the 7 days
+   before the period, or on at least 60% of the period's days.
+2. For each UTC day, the remaining detections are clustered with PostGIS
+   `ST_ClusterDBSCAN` (~5 km neighbourhood, at least 3 detections).
+3. Each day's clusters are linked greedily to the nearest track whose latest
+   cluster is within 30 km and at most 2 days earlier, so one cloudy day can be
+   skipped.
+4. Tracks spanning 2 or more days are returned as LineStrings, with distance and
+   direction moved (first to last position), km per day, detections and whether
+   they are still active (heat today or yesterday).
+
+A track shows how heat moved, not why. Separate fires close together can be
+linked, and clouds can break a track.
+
 ## Sentinel-2 imagery for clusters
 
 `GET /api/v1/sentinel2/scenes?lat=&lon=&days=30` searches the free

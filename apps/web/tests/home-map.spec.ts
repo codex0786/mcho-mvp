@@ -173,12 +173,17 @@ async function mockThermal(page: Page, configured = true) {
   await page.route("**/thermal/detections**", (route) => route.fulfill({
     json: configured ? THERMAL_DETECTIONS : { ...THERMAL_DETECTIONS, features: [], freshness },
   }));
-  await page.route("**/thermal/insights**", (route) => route.fulfill({
-    json: configured ? THERMAL_INSIGHTS : {
-      ...THERMAL_INSIGHTS, latest_detection_at: null, countries: [], new_activity_clusters: [], freshness,
-      totals: { active_detections: 0, new_detections: 0, persistent_detections: 0, elevated_countries: 0 },
-    },
-  }));
+  await page.route("**/thermal/insights**", (route) => {
+    // Like the API, echo the requested country and window.
+    const query = new URL(route.request().url()).searchParams;
+    const echo = { country: query.get("country"), window_hours: Number(query.get("hours") ?? 24) };
+    return route.fulfill({
+      json: configured ? { ...THERMAL_INSIGHTS, ...echo } : {
+        ...THERMAL_INSIGHTS, ...echo, latest_detection_at: null, countries: [], new_activity_clusters: [], freshness,
+        totals: { active_detections: 0, new_detections: 0, persistent_detections: 0, elevated_countries: 0 },
+      },
+    });
+  });
 }
 
 async function mockRuntime(page: Page, style: "slow-tiles" | "broken") {
@@ -479,4 +484,27 @@ test("hero shows live headline figures; basemap and legend controls work", async
 
   await page.getByRole("navigation", { name: "Site" }).getByRole("link", { name: "Verified violence" }).click();
   await expect(page).toHaveURL(/#violence$/);
+});
+
+test("retries a busy server (429) and keeps the heading true to the data shown", async ({ page }) => {
+  await mockRuntime(page, "slow-tiles");
+  let insightsCalls = 0;
+  // Registered after the default mocks, so it is consulted first.
+  await page.route("**/thermal/insights**", async (route) => {
+    insightsCalls += 1;
+    const country = new URL(route.request().url()).searchParams.get("country");
+    if (insightsCalls === 1) return route.fulfill({ status: 429, body: "busy" });
+    if (country === "IRQ") return route.fulfill({ status: 404, json: { detail: "not found" } });
+    return route.fallback();
+  });
+  await page.goto("/");
+  const insights = page.getByRole("region", { name: "Satellite insights" });
+  await expect(insights).toContainText("14", { timeout: 20_000 });
+  expect(insightsCalls).toBeGreaterThanOrEqual(2);
+  await expect(insights).not.toContainText("HTTP 429");
+
+  await page.getByLabel("Country").selectOption("IRQ");
+  await expect(insights).toContainText("Still showing the whole region, last 24 h.", { timeout: 15_000 });
+  await expect(insights).toContainText("Satellite insights unavailable: API returned HTTP 404");
+  await expect(insights.getByRole("heading", { name: "New activity clusters", exact: true })).toBeVisible();
 });

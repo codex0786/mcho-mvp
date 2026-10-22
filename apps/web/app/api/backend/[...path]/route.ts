@@ -62,6 +62,16 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
       cache: "no-store",
       signal: AbortSignal.timeout(20_000),
     });
+    // An HTML error page (the host's edge challenge or a wake failure) is not API data:
+    // answer with a retryable JSON 503 instead of passing the page or its status through.
+    const upstreamType = upstream.headers.get("content-type") ?? "";
+    if (upstream.status >= 400 && upstreamType.includes("text/html")) {
+      await upstream.body?.cancel();
+      return Response.json(
+        { detail: "The data server is waking up or busy; try again shortly." },
+        { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "10" } },
+      );
+    }
     const responseHeaders = new Headers();
     const contentType = upstream.headers.get("content-type");
     if (contentType) responseHeaders.set("content-type", contentType);

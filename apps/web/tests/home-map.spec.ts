@@ -508,3 +508,12 @@ test("retries a busy server (429) and keeps the heading true to the data shown",
   await expect(insights).toContainText("Satellite insights unavailable: API returned HTTP 404");
   await expect(insights.getByRole("heading", { name: "New activity clusters", exact: true })).toBeVisible();
 });
+
+test("hero heat figure follows the selected country, not the region total", async ({ page }) => {
+  await mockRuntime(page, "slow-tiles");
+  await page.goto("/?country=SDN");
+  const heat = page.getByLabel("Headline figures, Sudan").locator(".hero-stat").first();
+  await expect(heat).toContainText("12 at new locations", { timeout: 15_000 });
+  await expect(heat.locator(".hero-stat-value")).toHaveText("12");  // Sudan's row, not the region's 14
+  await expect(page.getByRole("region", { name: "Satellite insights" })).toContainText("Totals below cover the whole region");
+});

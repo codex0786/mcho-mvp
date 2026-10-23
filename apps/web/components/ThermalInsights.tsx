@@ -59,7 +59,11 @@ export default function ThermalInsights({ hours, country, onSelectCountry, onTot
       if (!body) return;
       setData(body);
       setMessage("");
-      totalsCallback.current?.(body.totals);
+      // The API's totals cover the whole region; a selected country uses its own row.
+      const row = body.country ? body.countries.find((c) => c.iso_a3 === body.country) : undefined;
+      totalsCallback.current?.(body.country
+        ? { ...body.totals, active_detections: row?.active_detections ?? 0, new_detections: row?.new_detections ?? 0 }
+        : body.totals);
     } catch (err) {
       if (current === generation.current) setMessage(`Satellite insights unavailable: ${err instanceof Error ? err.message : "unknown error"}.`);
     }
@@ -110,6 +114,7 @@ export default function ThermalInsights({ hours, country, onSelectCountry, onTot
           <p className="insights-fresh" role="status">
             Latest satellite pass {timeAgo(data.latest_detection_at)} ({utcTime(data.latest_detection_at)}) · data checked {timeAgo(freshness.last_successful_refresh_at)}
           </p>
+          {data.country && <p className="muted">Totals below cover the whole region; see the country trend above for {data.countries.find((c) => c.iso_a3 === data.country)?.name ?? data.country}.</p>}
           <div className="insights-totals">
             <div><strong>{totals.active_detections}</strong><span>active detections</span></div>
             <div><strong>{totals.new_detections}</strong><span>at new locations</span></div>
